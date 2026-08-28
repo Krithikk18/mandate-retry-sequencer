@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: mandate-retry-sequencer
+Version: 0.1.0
+Summary: Synthetic data generator + ground-truth oracle for Indian subscription payment failures
+Requires-Python: >=3.11
+Requires-Dist: numpy>=1.26
+Requires-Dist: pandas>=2.1
+Requires-Dist: pydantic>=2.6
+Requires-Dist: pyarrow>=14
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4; extra == "dev"

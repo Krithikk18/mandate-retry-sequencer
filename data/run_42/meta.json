@@ -1,0 +1,23 @@
+{
+  "n_customers": 500,
+  "seed": 42,
+  "as_of": "2026-08-01",
+  "history_days": 365,
+  "future_horizon_days": 60,
+  "series_start": "2025-08-01",
+  "series_days": 425,
+  "n_failure_events": 72,
+  "natural_failure_rate": 0.144,
+  "historical_original_attempts": 2679,
+  "historical_first_attempt_failure_rate": 0.13288540500186638,
+  "legacy_retry_offsets": [
+    2,
+    4,
+    7
+  ],
+  "n_income_shocked": 12,
+  "legacy_recovery_rate": 0.4722222222222222,
+  "unrecoverable_share": 0.1527777777777778,
+  "median_days_to_payday": 9.0,
+  "share_failing_beyond_legacy_reach": 0.5277777777777778
+}

@@ -187,6 +187,13 @@ find them anyway.
    which makes waiting cheaper than hammering. The opposite is equally
    plausible. Evaluate both directions and report both.
 
+4. The bank concentration table is realistic in SHAPE only. Per-issuer
+   UPI Autopay mandate share is not published by NPCI. What is public is
+   the broad concentration: a handful of large issuers carry most
+   mandates, with a long tail of smaller banks and small finance banks.
+   The weights in src/generator/banks.py reproduce that shape and
+   nothing more. Never quote them as facts about any named bank.
+
 ## Architecture for merging the six classes
 
     core/
@@ -236,14 +243,35 @@ drop HOLD), the 24-hour lag ablation, and 20-seed robustness.
 
 ## Open issues
 
-1. Baseline currently recovers 63.8%. Real fixed-retry recovery is
-   35-45%. The failure-to-payday gap is too tightly clustered around
-   6 days, which lets the day-7 retry land well by accident. Widen the
-   distribution.
+The three issues that stood here through class 1 - baseline recovering
+63.8%, no unrecoverable customers, irritation decay hardcoded - are all
+closed. Git history has what they said.
 
-2. 100% of customers are recoverable within 30 days, so CANCEL is never
-   correct and the stopping rule is never tested. Add roughly 4% of
-   customers with a genuine income shock (salary stops).
+1. Downtime failure share is volatile by nature, and that is the class
+   behaving correctly rather than a tuning failure. Mean over 20 seeds is
+   9.1% of failures carrying code 91, but individual seeds run from 1.3%
+   to 22.3% and only 3 of 20 land inside the 8-12% target band.
+   Insufficient funds is an independent per-customer draw, so its share
+   is stable; one outage fails every mandate on that issuer at once, so a
+   large bank down on a busy debit day swings a whole seed. Pinned as a
+   property in tests/test_dataset.py rather than tuned away, because
+   narrowing the spread would mean removing the cross-customer
+   correlation that makes the class worth modelling at all.
 
-3. The irritation-decay direction needs to become a switch, evaluated
-   both ways.
+2. The money equation has no time preference. Nothing penalises delay, so
+   Rs 2,571 collected in thirty days outscores Rs 2,551 collected
+   tomorrow. On the downtime class the agent recovers as often as the
+   oracle but resolves 538 hours after the outage clears, against the
+   oracle's 34. DecisionEngine.daily_discount prices this and defaults to
+   0.0. Measured on downtime, 1%/day roughly halves the mean post-clear
+   delay (23.2 -> 10.7 days) at no cost in recovery (96.1% either way).
+   It is left off so no class-1 number already reported changes silently;
+   switching it on is a decision for the write-up, not a quiet edit. It
+   is the highest-value change outstanding.
+
+3. Classes 5 (afa_incomplete) and 6 (ambiguous) are still stubs in
+   src/classes/stubs.py. Both declare implemented = False, return a
+   success probability of 0.0, and are excluded from every reported
+   number. AFA needs an OTP-completion hazard the generator does not
+   currently produce; ambiguous needs its cautious-single-retry rule
+   wired through to the engine.

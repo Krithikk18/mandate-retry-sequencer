@@ -182,10 +182,20 @@ find them anyway.
    and handles the opt-out. Claiming otherwise reveals a
    misunderstanding of the payment flow.
 
-3. The irritation-decay direction is an assumption, not a finding. The
-   generator currently models frustration as decaying after the bounce,
-   which makes waiting cheaper than hammering. The opposite is equally
-   plausible. Evaluate both directions and report both.
+3. The irritation-decay direction is an assumption and nothing in the
+   data can settle it. The generator defaults to frustration decaying
+   after the bounce, which makes waiting cheap and hammering expensive.
+   Resentment building while the debt drags on unresolved is equally
+   plausible, and nobody has measured which one is real. Because it is
+   the single modelling choice most capable of inverting the project's
+   conclusion, it is a switch rather than a constant
+   (IrritationDirection in generator/optout.py, threaded through every
+   function there) and every headline number is reported under both
+   directions via the irritation_build ablation. The gap is small:
+   -1.3% recovery on 16 of 20 seeds, against the 15-seed threshold this
+   project uses to call an effect consistent. Read that as "the
+   conclusion does not lean on the assumption", not as the assumption
+   having been validated.
 
 4. The bank concentration table is realistic in SHAPE only. Per-issuer
    UPI Autopay mandate share is not published by NPCI. What is public is

@@ -39,7 +39,11 @@ TERMINAL_ACTIONS: frozenset[str] = frozenset({"HOLD", "CANCEL"})
 # A presentment is a date plus a time, but the execution window is a rule about
 # the time. Policies name the date; this is the hour the presentment is filed
 # unless a policy deliberately overrides it. Inside the NPCI 00:00-07:00 window.
-DEFAULT_PRESENTMENT_TIME: time = time(2, 0)
+#
+# Defined in generator/rules.py because the generator resolves presentments
+# against an hour-resolution bank-outage process and cannot import policy/.
+# Re-exported here so every existing import site keeps working.
+DEFAULT_PRESENTMENT_TIME: time = rules.DEFAULT_PRESENTMENT_TIME
 
 
 class RetryDecision(BaseModel):

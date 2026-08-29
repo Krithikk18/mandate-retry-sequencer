@@ -142,6 +142,12 @@ def _render_decision(
         lines.append(line)
     if "shock_probability" in r:
         lines.append(f"{indent}Shock probability: {r['shock_probability']:.2f}")
+    if "bank_outage_probability" in r:
+        lines.append(
+            f"{indent}Bank {r.get('bank_id', '?')}: P(outage) "
+            f"{r['bank_outage_probability']:.3f}"
+            f"{DOT}expected recovery {r.get('expected_recovery_hours', 0):.1f}h"
+        )
 
     candidates = r.get("candidates") or []
     if candidates:

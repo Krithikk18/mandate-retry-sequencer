@@ -31,9 +31,12 @@ from datetime import timedelta
 
 import pandas as pd
 
+from datetime import datetime
+
 from generator import rules
+from generator.banks import BankOutageBook
 from generator.models import Customer
-from generator.oracle import first_success_date
+from generator.oracle import first_success_date, would_succeed_at
 
 from .base import Policy, PolicyState, RetryDecision
 
@@ -61,9 +64,11 @@ class OraclePolicy(Policy):
         customers: dict[str, Customer],
         balance_series: dict[str, pd.Series],
         horizon_days: int = 30,
+        outages: BankOutageBook | None = None,
     ) -> None:
         self._customers = customers
         self._balances = balance_series
+        self._outages = outages
         self.horizon_days = horizon_days
 
     @classmethod
@@ -75,10 +80,13 @@ class OraclePolicy(Policy):
         dict silently overwrites, and the oracle then reads the wrong person's
         balance while still looking like an oracle. Always bind per seed.
         """
+        from generator.generate import outage_book_for
+
         return cls(
             {c.customer_id: c for c in dataset.customers},
             dataset.balance_series,
             horizon_days=horizon_days,
+            outages=outage_book_for(dataset),
         )
 
     def decide(self, state: PolicyState) -> RetryDecision:
@@ -125,13 +133,26 @@ class OraclePolicy(Policy):
 
         # Look only from the first date this decision could legally reach.
         earliest = state.earliest_compliant_retry_date
-        target = first_success_date(
-            truth,
-            series,
-            amount,
-            after=earliest - timedelta(days=1),
-            horizon_days=self.horizon_days,
-        )
+        if self._outages is not None:
+            # Bank-aware: a date whose balance is fine but whose bank is down
+            # would fail, and a ceiling that schedules into an outage is not a
+            # ceiling. Walk forward to the first date that clears BOTH.
+            target = None
+            day = earliest
+            while day <= state.cycle_end_date:
+                at = datetime.combine(day, rules.DEFAULT_PRESENTMENT_TIME)
+                if would_succeed_at(truth, at, amount, series, self._outages):
+                    target = day
+                    break
+                day += timedelta(days=1)
+        else:
+            target = first_success_date(
+                truth,
+                series,
+                amount,
+                after=earliest - timedelta(days=1),
+                horizon_days=self.horizon_days,
+            )
 
         if target is not None and target <= state.cycle_end_date:
             return RetryDecision(

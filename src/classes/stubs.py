@@ -1,7 +1,8 @@
 """Classes that are NOT yet implemented, declared so the router has no gaps.
 
 Each of these is a real failure class with a real response, and none of them is
-modelled here. They exist so the taxonomy is complete and the router has no
+modelled here. Downtime USED to live here and now has a real model in
+classes/downtime.py - these are what is left. They exist so the taxonomy is complete and the router has no
 missing branch - a stub that says "not implemented" is safer than a KeyError in
 production and far safer than a plausible-looking guess.
 
@@ -18,26 +19,6 @@ from generator import rules
 from policy.base import Action, PolicyState
 
 from .base import FailureClassHandler
-
-
-class DowntimeHandler(FailureClassHandler):
-    """Bank or PSP was unavailable. NOT IMPLEMENTED.
-
-    The right model is a bank-health signal: retry within hours, not days,
-    because the failure says nothing about the customer. Modelling it needs
-    per-issuer uptime data the generator does not produce, so this returns a
-    flat placeholder and is excluded from reported results.
-    """
-
-    failure_class = rules.FAILURE_CLASS_DOWNTIME
-    implemented = False
-    rationale = "NOT IMPLEMENTED - needs a bank-health signal, retry within hours"
-
-    def success_probability(self, state: PolicyState, day: date) -> float:
-        return 0.0
-
-    def allowed_actions(self, state: PolicyState) -> list[Action]:
-        return ["RETRY", "WAIT", "HOLD", "CANCEL"]
 
 
 class AfaIncompleteHandler(FailureClassHandler):

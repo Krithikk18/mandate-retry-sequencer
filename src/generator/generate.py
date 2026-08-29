@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -28,6 +28,7 @@ import pandas as pd
 
 from . import rules
 from .balance import daily_balance
+from .banks import BankOutageBook, outage_book
 from .models import (
     AgentCustomer,
     AgentFailureEvent,
@@ -140,17 +141,34 @@ CLASS_RETURN_CODES: dict[str, str] = {
 
 
 def _resolve_attempt(
-    customer: Customer, day: date, balance_series: pd.Series
+    customer: Customer,
+    day: date,
+    balance_series: pd.Series,
+    outages: BankOutageBook | None = None,
 ) -> tuple[bool, str | None, str]:
     """Present the debit and report (succeeded, return_code, failure_class).
 
-    A dead mandate fails on every date regardless of the balance, and says WHY
-    through the return code. That is the only channel the agent gets - the
-    fields behind it are hidden.
+    Resolution order matters, and it is ordered by what actually blocked the
+    presentment rather than by what is convenient to check:
+
+    1. A DEAD MANDATE wins first. There is no credential to present, so the
+       balance and the bank are both irrelevant.
+    2. A BANK OUTAGE at the presentment hour comes next. The debit never
+       reaches the account, so whether the money was there is unknowable and
+       unknown - the acquirer returns 91, not 04.
+    3. Otherwise the BALANCE decides: 04, or success.
+
+    The return code is the only channel the agent gets. Everything behind it -
+    the outage book, the balance series, the dead-mandate fields - is hidden.
     """
     if customer.mandate_dead_from is not None and day >= customer.mandate_dead_from:
         dead_class = customer.mandate_dead_class or rules.FAILURE_CLASS_AMBIGUOUS
         return False, CLASS_RETURN_CODES[dead_class], dead_class
+
+    if outages is not None and outages.is_down(
+        customer.bank_id, datetime.combine(day, rules.DEFAULT_PRESENTMENT_TIME)
+    ):
+        return False, rules.RETURN_CODE_DOWNTIME, rules.FAILURE_CLASS_DOWNTIME
 
     cleared = presentment_succeeds(
         customer, day, customer.subscription_amount, balance_series
@@ -278,6 +296,16 @@ def generate_dataset(
     series_start = as_of - timedelta(days=HISTORY_DAYS)
     series_days = HISTORY_DAYS + FUTURE_HORIZON_DAYS
 
+    # Bank outages are shared truth, not a per-customer field. The book is a
+    # pure function of (seed, window), so any caller - including one that only
+    # has a dataset loaded back from parquet - rebuilds the identical intervals
+    # from dataset.seed and the window in dataset.meta.
+    outages = outage_book(
+        seed,
+        datetime.combine(series_start, datetime.min.time()),
+        datetime.combine(series_start + timedelta(days=series_days), datetime.min.time()),
+    )
+
     balance_series: dict[str, pd.Series] = {}
     payment_history: list[PaymentHistoryRecord] = []
     failure_events: list[FailureEvent] = []
@@ -297,7 +325,7 @@ def generate_dataset(
 
         # closed cycles: original attempt plus the legacy +2/+4/+7 retries
         for debit_date in past_cycles:
-            ok, code, _ = _resolve_attempt(customer, debit_date, series)
+            ok, code, _ = _resolve_attempt(customer, debit_date, series, outages)
             payment_history.append(_record(customer, debit_date, ok, code))
             historical_originals += 1
             if ok:
@@ -305,13 +333,17 @@ def generate_dataset(
             historical_original_failures += 1
             for offset in LEGACY_RETRY_OFFSETS:
                 retry_date = debit_date + timedelta(days=offset)
-                retry_ok, retry_code, _ = _resolve_attempt(customer, retry_date, series)
+                retry_ok, retry_code, _ = _resolve_attempt(
+                    customer, retry_date, series, outages
+                )
                 payment_history.append(_record(customer, retry_date, retry_ok, retry_code))
                 if retry_ok:
                     break
 
         # the open cycle: the original attempt only
-        ok, code, failure_class = _resolve_attempt(customer, current_cycle, series)
+        ok, code, failure_class = _resolve_attempt(
+            customer, current_cycle, series, outages
+        )
         payment_history.append(_record(customer, current_cycle, ok, code))
         if not ok:
             failure_events.append(
@@ -346,6 +378,16 @@ def generate_dataset(
             else 0.0
         ),
         "legacy_retry_offsets": list(LEGACY_RETRY_OFFSETS),
+        "downtime_share": (
+            sum(
+                1
+                for e in failure_events
+                if e.failure_class == rules.FAILURE_CLASS_DOWNTIME
+            )
+            / len(failure_events)
+            if failure_events
+            else 0.0
+        ),
         "n_income_shocked": sum(
             c.income_shock_start is not None for c in customers
         ),
@@ -360,6 +402,23 @@ def generate_dataset(
         as_of=as_of,
         seed=seed,
         meta=meta,
+    )
+
+
+def outage_book_for(dataset: Dataset) -> BankOutageBook:
+    """Rebuild the dataset's bank outage book from its seed and window.
+
+    The book is never persisted. It does not need to be: it is a pure function
+    of (seed, window), and both survive save/load in ``meta``. Anything that
+    needs the truth about outages - the oracle, the evaluation scripts - calls
+    this rather than reading a stored table.
+    """
+    start = date.fromisoformat(dataset.meta["series_start"])
+    days = int(dataset.meta["series_days"])
+    return outage_book(
+        int(dataset.meta["seed"]),
+        datetime.combine(start, datetime.min.time()),
+        datetime.combine(start + timedelta(days=days), datetime.min.time()),
     )
 
 

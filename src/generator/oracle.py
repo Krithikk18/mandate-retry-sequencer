@@ -33,12 +33,14 @@ top (see ``rules.bounce_charge``), not a feedback loop inside the truth.
 from __future__ import annotations
 
 import calendar
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 import numpy as np
 import pandas as pd
 
+from . import rules
 from .balance import counterfactual_paths
+from .banks import BankOutageBook
 from .models import Customer
 
 # How much settled history to simulate before the date being asked about, on
@@ -188,3 +190,107 @@ def next_salary_date(customer: Customer, after: date) -> date:
 def days_to_next_salary(customer: Customer, from_date: date) -> int:
     """How long the customer must wait for money to land."""
     return (next_salary_date(customer, from_date) - from_date).days
+
+
+# --- hour-resolution truth, for the downtime class ---------------------------
+#
+# The functions above are BALANCE-ONLY and stay that way: the payday model is
+# graded against them, and folding a second failure mode into them would make
+# that grading meaningless. What follows is the truth for a presentment, which
+# needs both conditions and needs the hour rather than the day.
+
+
+def would_succeed_at(
+    customer: Customer,
+    at: datetime,
+    amount: float,
+    balance_series: pd.Series,
+    outages: BankOutageBook,
+) -> bool:
+    """Ground truth for a presentment at a specific HOUR.
+
+    An AND of two independent conditions, and the conjunction is the point:
+
+    * the bank must be up at ``at`` (hour resolution), and
+    * the balance must cover ``amount`` on ``at.date()`` (daily resolution).
+
+    A customer can be broke AND their bank down at the same moment. Waiting for
+    the outage to clear does not put money in the account, and money in the
+    account does not bring the bank back. Reporting a bank-clear window as
+    recoverable when the balance would have failed anyway is exactly the error
+    this signature exists to prevent.
+    """
+    if not outages.is_up(customer.bank_id, at):
+        return False
+    return presentment_succeeds(customer, at.date(), amount, balance_series)
+
+
+def _window_slots(day: date) -> list[datetime]:
+    """Presentment hours available on one day, inside the NPCI window."""
+    start = rules.UPI_AUTOPAY_WINDOW_START.hour
+    end = rules.UPI_AUTOPAY_WINDOW_END.hour
+    return [datetime.combine(day, time(hour)) for hour in range(start, end)]
+
+
+def first_success_datetime(
+    customer: Customer,
+    after: datetime,
+    amount: float,
+    balance_series: pd.Series,
+    outages: BankOutageBook,
+    horizon_days: int = 30,
+) -> datetime | None:
+    """Earliest legal presentment hour strictly after ``after`` that clears.
+
+    Restricted to the NPCI 00:00-07:00 execution window, so this is the best a
+    compliant policy could ever have done - not merely the first hour the bank
+    happened to be up.
+
+    The search is bounded rather than hour-by-hour across a year. Two shortcuts,
+    both from the structure of the problem:
+
+    * if the bank is down, jump straight to the end of that outage using the
+      book rather than probing each hour inside it;
+    * if the bank is up but the BALANCE is short, no other hour that day can
+      help - the balance series is daily - so skip to the next day's window.
+    """
+    limit = datetime.combine(after.date() + timedelta(days=horizon_days), time(0, 0))
+    series_end = balance_series.index[-1].date()
+
+    day = after.date()
+    while day <= series_end:
+        if datetime.combine(day, time(0, 0)) > limit:
+            return None
+
+        # The balance is a daily fact: if it cannot cover the amount today,
+        # no hour of today will, so do not scan hours.
+        if not presentment_succeeds(customer, day, amount, balance_series):
+            day += timedelta(days=1)
+            continue
+
+        for slot in _window_slots(day):
+            if slot <= after:
+                continue
+            if outages.is_up(customer.bank_id, slot):
+                return slot
+            # Jump over the outage instead of probing every hour inside it.
+            resume = outages.next_up_at_or_after(customer.bank_id, slot)
+            if resume.date() == day:
+                # Round up to the next whole presentment hour once the bank is
+                # back, then re-check the window. The rounding can push past
+                # 07:00, and the window end is EXCLUSIVE - returning 07:00
+                # would be an illegal presentment dressed up as the answer.
+                candidate = resume.replace(minute=0, second=0, microsecond=0)
+                if candidate < resume:
+                    candidate += timedelta(hours=1)
+                if (
+                    candidate > after
+                    and rules.in_execution_window(candidate.time())
+                    and outages.is_up(customer.bank_id, candidate)
+                ):
+                    return candidate
+            break  # rest of today's window is inside the outage
+
+        day += timedelta(days=1)
+
+    return None

@@ -70,10 +70,30 @@ def test_natural_failure_rate_is_realistic(seed):
 
 
 def test_failure_rate_mean_and_spread_across_seeds(multi_seed_meta):
-    """Single runs are not evidence - report mean and spread."""
+    """Single runs are not evidence - report mean and spread.
+
+    The band accommodates all four generated failure classes. Bank outages push
+    the total up by a few points over the insufficient-funds-only book, which is
+    the point of adding them.
+    """
     rates = np.array([m["natural_failure_rate"] for m in multi_seed_meta])
-    assert 0.05 <= rates.min() and rates.max() <= 0.20
-    assert 0.10 <= rates.mean() <= 0.18, f"mean failure rate {rates.mean():.3f}"
+    assert 0.05 <= rates.min() and rates.max() <= 0.22
+    assert 0.10 <= rates.mean() <= 0.20, f"mean failure rate {rates.mean():.3f}"
+
+
+def test_downtime_share_is_volatile_because_outages_are_correlated(multi_seed_meta):
+    """A property worth pinning rather than smoothing over.
+
+    Insufficient funds is an independent per-customer draw, so its share is
+    stable across seeds. An outage is one event that fails every customer on
+    that issuer at once, so whether a large bank happened to be down on a busy
+    debit day swings the whole seed. Mean lands near the 10% target; individual
+    seeds range from about 1% to over 20%, and that spread is the correlation
+    showing up rather than a tuning failure.
+    """
+    shares = np.array([m["downtime_share"] for m in multi_seed_meta])
+    assert 0.03 <= shares.mean() <= 0.18, f"mean downtime share {shares.mean():.3f}"
+    assert shares.max() > shares.min(), "no seed-to-seed variation at all"
 
 
 def test_failure_events_are_exactly_the_debits_that_really_bounced(dataset):
@@ -92,6 +112,19 @@ def test_failure_events_are_exactly_the_debits_that_really_bounced(dataset):
             assert not would_succeed(
                 customer, event.original_debit_date, customer.subscription_amount, series
             )
+        elif event.failure_class == rules.FAILURE_CLASS_DOWNTIME:
+            # The bank was unavailable at the presentment hour. Nothing about
+            # the mandate or the balance is implicated - and specifically, no
+            # dead-mandate flag is involved.
+            from datetime import datetime
+
+            from generator.generate import outage_book_for
+
+            at = datetime.combine(
+                event.original_debit_date, rules.DEFAULT_PRESENTMENT_TIME
+            )
+            assert outage_book_for(dataset).is_down(customer.bank_id, at)
+            assert event.return_code == rules.RETURN_CODE_DOWNTIME
         else:
             # A dead mandate fails whatever the balance says, and the return
             # code is the only thing that tells the agent why.
@@ -153,27 +186,55 @@ def test_history_is_truncated_to_tenure(dataset):
 
 
 def test_history_attempts_agree_with_the_balance_truth(dataset):
-    """Insufficient-funds attempts are resolved by the balance, and only those.
+    """Each attempt is resolved by whatever actually blocked it.
 
-    A mandate whose card expired or whose consent was revoked fails on every
-    date whatever the balance says, so those attempts are excluded - they are a
-    different failure class with a different return code.
+    Three mechanisms can stop a presentment, and the return code says which:
+
+    * a dead mandate (54/22) - fails on every date whatever the balance says;
+    * a bank outage (91) - the debit never reached the account, so the balance
+      is irrelevant and unknowable;
+    * otherwise the balance (04, or success).
+
+    Only the third is a statement about ``would_succeed``. Asserting the
+    balance explains a downtime failure would be asserting something false.
     """
-    checked = 0
+    from datetime import datetime
+
+    from generator import rules
+    from generator.generate import outage_book_for
+
+    outages = outage_book_for(dataset)
+    checked = downtime_seen = 0
+
     for record in dataset.payment_history[:2000]:
         customer = dataset.customer(record.customer_id)
         if customer.mandate_dead_from is not None and (
             record.attempt_date >= customer.mandate_dead_from
         ):
             assert not record.succeeded
-            assert record.return_code != "04"
+            assert record.return_code not in ("04", None)
             continue
+
+        at = datetime.combine(record.attempt_date, rules.DEFAULT_PRESENTMENT_TIME)
+        if rules.classify(record.return_code) == rules.FAILURE_CLASS_DOWNTIME:
+            assert not record.succeeded
+            assert outages.is_down(customer.bank_id, at), (
+                f"{record.customer_id} got code 91 on {record.attempt_date} but "
+                f"{customer.bank_id} was up at the presentment hour"
+            )
+            downtime_seen += 1
+            continue
+
+        # Everything else really is the balance - and the bank was up for it.
+        assert outages.is_up(customer.bank_id, at)
         series = dataset.balance_of(record.customer_id)
         assert record.succeeded == would_succeed(
             customer, record.attempt_date, record.amount, series
         )
         checked += 1
+
     assert checked > 100
+    assert downtime_seen > 0, "no downtime failures in this sample to check"
 
 
 def test_retries_follow_the_legacy_schedule_and_stop_on_success(dataset):

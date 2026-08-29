@@ -335,14 +335,30 @@ def test_at_the_specified_carrying_cost_holding_still_wins(dataset):
     parameters it is still rarely the profitable move. That is a property of
     the cost model, not a bug, and it should be stated rather than hidden.
     """
-    events = _shocked_events(dataset)
-    if not events:
-        pytest.skip("no income-shocked failures in this dataset")
-    holding = _mean_net(AlwaysHold(), dataset, events, 0.15)
-    stopping = _mean_net(CancelAfterTwoCycles(), dataset, events, 0.15)
-    assert holding > stopping, (
+    # Pooled across seeds on purpose. A single dataset carries only a handful
+    # of income-shocked customers, and on roughly one seed in five the small
+    # sample flips - so a single-dataset assertion here was measuring seed
+    # noise rather than the cost model.
+    holding_total = stopping_total = 0.0
+    seeds_holding_wins = 0
+    for seed in (11, 12, 13, 14, 15):
+        book = generate_dataset(n_customers=250, seed=seed)
+        events = _shocked_events(book)
+        if not events:
+            continue
+        holding = _mean_net(AlwaysHold(), book, events, 0.15)
+        stopping = _mean_net(CancelAfterTwoCycles(), book, events, 0.15)
+        holding_total += holding
+        stopping_total += stopping
+        seeds_holding_wins += holding > stopping
+
+    assert holding_total > stopping_total, (
         "holding no longer wins at the default carrying cost - the README and "
         "the sensitivity script both claim it does, so update them together"
+    )
+    assert seeds_holding_wins >= 3, (
+        f"holding won on only {seeds_holding_wins}/5 seeds - the claim has "
+        "become marginal and should be restated"
     )
 
 

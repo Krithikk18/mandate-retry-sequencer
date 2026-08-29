@@ -17,7 +17,7 @@ from datetime import date, timedelta
 
 import numpy as np
 
-from . import rules
+from . import banks, rules
 from .models import Customer
 
 # --- salary day --------------------------------------------------------------
@@ -153,6 +153,16 @@ def draw_rail(rng: np.random.Generator, n: int) -> np.ndarray:
     return _pmf_choice(rng, RAIL_PMF, n)
 
 
+def draw_bank_id(rng: np.random.Generator, n: int) -> np.ndarray:
+    """Assign each customer an issuing bank from the book-share distribution.
+
+    Concentration matters here, not just variety: most customers sit on a
+    handful of large issuers, so an outage at one of those hits many mandates
+    at once - which is what makes the shared signal worth learning.
+    """
+    return _pmf_choice(rng, banks.BANK_SHARES, n)
+
+
 def draw_tenure(rng: np.random.Generator, n: int) -> np.ndarray:
     tenure = rng.exponential(scale=TENURE_MEAN_MONTHS, size=n) + 1.0
     return np.clip(np.floor(tenure), TENURE_MIN, TENURE_MAX).astype(int)
@@ -240,6 +250,7 @@ def make_population(
 
     amounts = draw_subscription_amount(rng, n_customers)
     rails = draw_rail(rng, n_customers)
+    bank_ids = draw_bank_id(rng, n_customers)
     debit_days = draw_debit_day(rng, n_customers)
     tenures = draw_tenure(rng, n_customers)
     salary_days = draw_salary_day(rng, n_customers)
@@ -259,6 +270,7 @@ def make_population(
             customer_id=f"CUST_{i + 1:0{width}d}",
             subscription_amount=float(amounts[i]),
             rail=str(rails[i]),
+            bank_id=str(bank_ids[i]),
             debit_day_of_month=int(debit_days[i]),
             tenure_months=int(tenures[i]),
             monthly_ltv=float(amounts[i]) * 12.0,

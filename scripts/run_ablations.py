@@ -13,6 +13,7 @@ result honestly is worth more than claiming one that is not there.
     no_hold          HOLD removed from the action set
     with_nudge       NUDGE switched on (it is off by default - see below)
     tier1_payday     tier 1 (day-of-month frequency) instead of tier 2
+    no_bank_health   no cross-customer pooling of bank outage evidence
     irritation_build the opposite irritation direction
 
 Legacy and the oracle ceiling are shown alongside as the floor and the roof.
@@ -42,6 +43,7 @@ VARIANTS: dict[str, dict] = {
     "no_hold": {"use_hold": False},
     "with_nudge": {"use_nudge": True},
     "tier1_payday": {"payday_tier": 1},
+    "no_bank_health": {"use_bank_health": False},
     "irritation_build": {"irritation_direction": "build"},
 }
 
@@ -127,7 +129,12 @@ def main() -> None:
         # Three bands, not two. An effect that shows up on 15 of 20 seeds is
         # not the same claim as one that shows up on all 20, and collapsing
         # them into a single "earns its place" overstates the weaker one.
-        if agreeing < 0.75:
+        if abs(delta_net) < 1.0 and abs(delta_rec) < 1e-9:
+            # Not "a liability" and not "borderline" - literally no effect.
+            # A component that changes nothing to the rupee on any seed is not
+            # doing anything, and saying so plainly is the useful report.
+            verdict = "NO EFFECT AT ALL - identical on every seed"
+        elif agreeing < 0.75:
             verdict = "NOT CONSISTENT across seeds - do not claim it"
         elif agreeing < 0.85:
             direction = "hurts" if delta_net < 0 else "helps"

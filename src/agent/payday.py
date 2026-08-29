@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Iterable, Sequence
 
+from generator import rules
 from generator.models import AgentPaymentHistoryRecord
 
 # --- the documented prior ----------------------------------------------------
@@ -189,9 +190,34 @@ class PaydayModel:
 
     # --- fitting -------------------------------------------------------------
 
+    @staticmethod
+    def _tells_us_about_the_balance(record: AgentPaymentHistoryRecord) -> bool:
+        """Is this attempt evidence about the customer's liquidity?
+
+        A success is: the money was there. A 04 is: it was not. But a debit
+        that failed because the BANK was down, or because the credential was
+        dead, never reached the account - the balance is unknown, not short.
+
+        Counting those as evidence of an empty account is a real error, not a
+        rounding one. It drags the inferred payday around and makes the model
+        wait for a salary that was never the problem, which showed up as the
+        sequencer recovering downtime failures weeks after the bank came back.
+        Censored observations are dropped, not treated as failures.
+        """
+        if record.succeeded:
+            return True
+        return rules.classify(record.return_code) == rules.FAILURE_CLASS_INSUFFICIENT_FUNDS
+
     def fit(self, payment_history: Iterable[AgentPaymentHistoryRecord]) -> None:
-        """Learn from attempt dates and outcomes. Nothing else is available."""
-        records = sorted(payment_history, key=lambda r: r.attempt_date)
+        """Learn from attempt dates and outcomes. Nothing else is available.
+
+        Only attempts that actually tested the balance are used; see
+        ``_tells_us_about_the_balance``.
+        """
+        records = sorted(
+            (r for r in payment_history if self._tells_us_about_the_balance(r)),
+            key=lambda r: r.attempt_date,
+        )
         self._records = records
         self._amount = records[-1].amount if records else 0.0
 

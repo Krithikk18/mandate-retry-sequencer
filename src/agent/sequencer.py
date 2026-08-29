@@ -27,12 +27,13 @@ records what the agent believed, not merely what it did.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from generator import rules
 from policy.base import Policy, PolicyState, RetryDecision
 from router import route
 
+from .bank_health import BASE_OUTAGE_RATE, BankHealthModel, PresentmentOutcome
 from .churn import DEFAULT_IRRITATION_DIRECTION, IrritationDirection
 from .decision_engine import DecisionEngine, ScoredDate
 from .payday import PaydayModel
@@ -63,6 +64,14 @@ class SequencerConfig:
     # modelled lift does not pay for the delay. Kept behind a switch so the
     # finding stays reproducible rather than deleted.
     use_nudge: bool = False  # with_nudge
+    # no_bank_health: strip the cross-customer signal. The agent still knows a
+    # failure was downtime-coded, but has to price every date at the book-wide
+    # base rate instead of pooling evidence from other customers on the same
+    # bank. This isolates what the shared signal is worth.
+    use_bank_health: bool = True
+    # Time preference on recovered money. 0.0 reproduces the equation as
+    # originally specified; see DecisionEngine.daily_discount.
+    daily_discount: float = 0.0
     shock_threshold: float = SHOCK_STOP_THRESHOLD
     lead_time_hours: int = rules.PRE_DEBIT_NOTICE_HOURS
     irritation_direction: IrritationDirection = DEFAULT_IRRITATION_DIRECTION
@@ -72,16 +81,71 @@ class SequencerConfig:
 class SequencerPolicy(Policy):
     """Payday-aware, cost-aware retry sequencing."""
 
-    def __init__(self, config: SequencerConfig | None = None, name: str = "sequencer") -> None:
+    def __init__(
+        self,
+        config: SequencerConfig | None = None,
+        name: str = "sequencer",
+        bank_health: BankHealthModel | None = None,
+    ) -> None:
         self.config = config or SequencerConfig()
         self.name = name
+        # Shared across every customer this policy decides for. That is the
+        # point: a downtime-coded failure on one mandate is evidence about
+        # every other mandate on the same bank. Injected when the caller has
+        # already primed it from the whole book; otherwise it accumulates as
+        # customers are seen, which is how a live system would learn.
+        self.bank_health = bank_health or BankHealthModel()
+        self._ingested: set[str] = set()
         self.engine = DecisionEngine(
             lead_time_hours=self.config.lead_time_hours,
             irritation_direction=self.config.irritation_direction,
             include_optout_cost=self.config.include_optout_cost,
+            daily_discount=self.config.daily_discount,
         )
 
     # --- liquidity -----------------------------------------------------------
+
+    def _ingest_bank_evidence(self, state: PolicyState) -> None:
+        """Fold this customer's declines into the shared bank-health model.
+
+        Deduplicated by customer id, so replaying a customer's history on every
+        day of their episode does not count the same failure twenty times.
+        """
+        customer_id = state.customer.customer_id
+        if customer_id in self._ingested:
+            return
+        self._ingested.add(customer_id)
+        for record in state.payment_history:
+            if record.succeeded:
+                continue
+            self.bank_health.observe(
+                PresentmentOutcome(
+                    bank_id=state.customer.bank_id,
+                    at=datetime.combine(
+                        record.attempt_date, rules.DEFAULT_PRESENTMENT_TIME
+                    ),
+                    return_code=record.return_code,
+                )
+            )
+
+    def _uptime_curve(
+        self, state: PolicyState, start: date, end: date
+    ) -> dict[date, float]:
+        """P(the bank can process a presentment), per candidate date."""
+        curve: dict[date, float] = {}
+        day = start
+        while day <= end:
+            if self.config.use_bank_health:
+                at = datetime.combine(day, rules.DEFAULT_PRESENTMENT_TIME)
+                curve[day] = self.bank_health.uptime_probability(
+                    state.customer.bank_id, at
+                )
+            else:
+                # Ablation: no pooling. Every date gets the book-wide base rate,
+                # so the agent knows outages exist but never which hours.
+                curve[day] = 1.0 - BASE_OUTAGE_RATE
+            day += timedelta(days=1)
+        return curve
 
     def _fit_model(self, state: PolicyState) -> PaydayModel:
         model = PaydayModel(tier=self.config.payday_tier, prior=self.config.payday_prior)
@@ -112,6 +176,20 @@ class SequencerPolicy(Policy):
             curve[day] = rate
             day += timedelta(days=1)
         return curve
+
+    def _apply_bank_term(
+        self, state: PolicyState, curve: dict[date, float], start: date, end: date
+    ) -> dict[date, float]:
+        """Multiply in P(bank up) for a downtime failure.
+
+        Deliberately a multiplication into the SAME curve the money equation
+        already consumes, rather than a new branch in the decision engine. A
+        bank that is probably down simply makes those dates worth less, and
+        WAIT wins over RETRY for the ordinary reason - the arithmetic - not
+        because anything says "wait during an outage".
+        """
+        uptime = self._uptime_curve(state, start, end)
+        return {day: value * uptime.get(day, 1.0) for day, value in curve.items()}
 
     # --- stopping ------------------------------------------------------------
 
@@ -156,6 +234,7 @@ class SequencerPolicy(Policy):
     # --- the decision --------------------------------------------------------
 
     def decide(self, state: PolicyState) -> RetryDecision:
+        self._ingest_bank_evidence(state)
         handler = route(state.failure_event)
         if not handler.permits_retry(state):
             # Two of the six classes are structurally dead: an expired
@@ -182,10 +261,27 @@ class SequencerPolicy(Policy):
             "payday_tier": self.config.payday_tier,
         }
 
+        if state.failure_event.failure_class == rules.FAILURE_CLASS_DOWNTIME:
+            at = datetime.combine(
+                self.engine.earliest_presentment_date(state.today),
+                rules.DEFAULT_PRESENTMENT_TIME,
+            )
+            base["bank_id"] = state.customer.bank_id
+            base["bank_outage_probability"] = round(
+                self.bank_health.outage_probability(state.customer.bank_id, at)
+                if self.config.use_bank_health
+                else BASE_OUTAGE_RATE,
+                4,
+            )
+            base["expected_recovery_hours"] = round(
+                self.bank_health.expected_recovery_hours(state.customer.bank_id), 2
+            )
+
         earliest = self.engine.earliest_presentment_date(state.today)
-        scored = self.engine.score(
-            state, self._liquidity(model, state, earliest, state.cycle_end_date)
-        )
+        curve = self._liquidity(model, state, earliest, state.cycle_end_date)
+        if state.failure_event.failure_class == rules.FAILURE_CLASS_DOWNTIME:
+            curve = self._apply_bank_term(state, curve, earliest, state.cycle_end_date)
+        scored = self.engine.score(state, curve)
         base["candidates"] = [s.as_dict() for s in scored[:AUDIT_TOP_N]]
         base["binding_constraints"] = self.engine.binding_constraints()
 

@@ -59,6 +59,12 @@ class Customer(BaseModel):
     tenure_months: int = Field(ge=1, le=48)
     monthly_ltv: float = Field(gt=0)
 
+    # The customer's issuing bank. PUBLIC, and deliberately so: a real PSP
+    # reads it off the IFSC or the UPI handle. It is what lets the bank-health
+    # model correlate failures across customers who share an issuer, which is
+    # the entire basis of the downtime class.
+    bank_id: str = "SBI"
+
     # --- hidden: income profile (oracle only) -------------------------------
     salary_day: int = Field(ge=1, le=31)
     salary_amount: float = Field(gt=0)
@@ -163,6 +169,7 @@ class AgentCustomer(BaseModel):
     debit_day_of_month: int
     tenure_months: int
     monthly_ltv: float
+    bank_id: str = "SBI"
 
     @property
     def requires_otp(self) -> bool:

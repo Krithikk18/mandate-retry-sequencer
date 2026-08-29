@@ -54,6 +54,16 @@ MAX_ATTEMPTS_PER_CYCLE: int = 4  # 1 original + 3 retries
 UPI_AUTOPAY_WINDOW_START: time = time(0, 0)
 UPI_AUTOPAY_WINDOW_END: time = time(7, 0)
 
+# The hour a presentment is actually filed, inside the window above.
+#
+# This lives here rather than in policy/base.py because the GENERATOR needs it:
+# a bank outage is an hour-resolution process, so resolving a presentment
+# against it requires knowing what time of day the debit hits. generator/ must
+# never import policy/ - policy already imports generator, and the reverse
+# would be circular - so the constant belongs on the generator side and
+# policy/base.py re-exports it.
+DEFAULT_PRESENTMENT_TIME: time = time(2, 0)
+
 # --- NACH --------------------------------------------------------------------
 RETURN_CODE_INSUFFICIENT_FUNDS: str = "04"
 NACH_BOUNCE_CHARGE_INR: float = 500.0

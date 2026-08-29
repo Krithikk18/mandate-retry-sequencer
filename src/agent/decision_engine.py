@@ -105,6 +105,15 @@ class DecisionEngine:
     irritation_direction: IrritationDirection = DEFAULT_IRRITATION_DIRECTION
     presentment_time: time = DEFAULT_PRESENTMENT_TIME
     include_optout_cost: bool = True  # ablation switch
+    # Rupees collected sooner are worth more than rupees collected later, and
+    # the equation as written says otherwise: it will happily wait a month to
+    # shave the churn term, because nothing penalises delay.
+    #
+    # DEFAULT 0.0 - the equation is unchanged unless a caller asks. Turning it
+    # on is what `scripts/run_downtime.py` measures, because the downtime class
+    # is where the omission actually shows: the money was collectable the next
+    # morning and the agent waited weeks for a marginally safer notice.
+    daily_discount: float = 0.0
     _binding: list[Constraint] = field(default_factory=list, init=False)
 
     @property
@@ -197,6 +206,9 @@ class DecisionEngine:
             )
 
             expected_recovery = p_clear * amount
+            if self.daily_discount:
+                days_out = max(0, (day - original).days)
+                expected_recovery *= (1.0 - self.daily_discount) ** days_out
             expected_bounce = (1.0 - p_clear) * bounce
             expected_churn = p_optout * customer.annual_ltv
             value = expected_recovery - processing - expected_bounce - expected_churn

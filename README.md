@@ -6,11 +6,11 @@ day-2/4/7 schedule at every failure.
 
 Contains the **data generator**, the **fixed-schedule baseline**, the
 **evaluation harness** that scores any policy against the oracle, and the
-**sequencer** itself - payday inference, the money equation, and the full
-RETRY / NUDGE / WAIT / HOLD / CANCEL action set, with ablations for every
-component. Three of the six failure classes are implemented behind a router
-that dispatches on the return code; the other three are declared stubs and
-produce no numbers.
+**sequencer** itself - payday inference, bank-health inference, the money
+equation, and the full RETRY / NUDGE / WAIT / HOLD / CANCEL action set, with
+ablations for every component. Four of the six failure classes are implemented
+behind a router that dispatches on the return code; the other two are declared
+stubs and produce no numbers.
 
 ---
 
@@ -89,7 +89,7 @@ construction error rather than a silent data problem:
 
 ```bash
 pip install -e ".[dev]"     # or: pip install numpy pandas pydantic pyarrow pytest
-pytest                      # 201 tests
+pytest                      # 230 tests
 python scripts/inspect_data.py --n 500 --seed 42 --save data/run_42
 ```
 
@@ -460,26 +460,26 @@ the attempt and notification budget, and which constraint bound the choice.
 
 ### Results, 20 seeds x 500 customers
 
-Measured on the full mixed population - 90.9% insufficient funds, 6.1% expired
-card, 3.0% revoked consent:
+Measured on the full mixed population - 81.7% insufficient funds, 9.3% bank
+downtime, 6.5% expired card, 2.5% revoked consent:
 
 | | recovery | money | net value | attempts | optouts | retained |
 | --- | --- | --- | --- | --- | --- | --- |
-| legacy fixed | 31.6% | 72,993 | -1,887,617 | 267 | 8.0 | 24.8 |
-| **sequencer** | **57.3%** | **150,743** | **-536,420** | 351 | 1.6 | 59.6 |
-| oracle ceiling | 66.8% | 171,860 | -324,514 | 281 | 1.2 | 65.3 |
+| legacy fixed | 35.5% | 78,940 | -1,684,613 | 272 | 7.1 | 26.5 |
+| **sequencer** | **58.9%** | **155,127** | **-530,506** | 336 | 2.1 | 59.9 |
+| oracle ceiling | 67.8% | 175,003 | -337,214 | 285 | 1.5 | 65.6 |
 
-**Headroom captured: 73.0%.** Comfortably between the floor and the ceiling,
+**Headroom captured: 72.5%.** Comfortably between the floor and the ceiling,
 which is where it has to be - at or above the oracle would mean information is
 leaking, and a test asserts it never happens on any seed.
 
-The ceiling sits lower here (66.8%) than on an insufficient-funds-only book,
+The ceiling sits lower here (67.8%) than on an insufficient-funds-only book,
 because about 9% of failures are structurally dead mandates that **nothing** can
 recover. Not even the oracle. That is the correct ceiling for a mixed book, and
 quoting the higher one would be quoting an easier problem.
 
-Beyond recovery: **5x fewer opt-outs induced** (1.6 vs 8.0) and **2.4x more
-mandates retained** (59.6 vs 24.8). On an insufficient-funds-only book the
+Beyond recovery: **3x fewer opt-outs induced** (2.1 vs 7.1) and **2.3x more
+mandates retained** (59.9 vs 26.5). On an insufficient-funds-only book the
 sequencer also made 3.6x fewer *wasted* attempts - presentments where the true
 probability of clearing was under 20% - though that metric needs the slower
 oracle-metrics pass and is not in the table above.
@@ -492,14 +492,15 @@ because a real effect shows up on most seeds rather than only in the mean.
 
 | variant | d recovery | d net value | seeds worse | verdict |
 | --- | --- | --- | --- | --- |
-| `no_payday` | -21.6% | -567,707 | 20/20 | the biggest single contributor |
-| `tier1_payday` | -9.7% | -234,055 | 20/20 | tier 2 over tier 1 is worth real money |
-| `no_hold` | -8.6% | -614,529 | 20/20 | HOLD earns its place |
-| `with_nudge` | -4.1% | -115,777 | 19/20 | **NUDGE is a liability** |
-| `irritation_build` | -1.5% | -58,385 | 16/20 | borderline - see below |
-| `no_optout_cost` | +0.0% | -35,819 | 15/20 | borderline - see below |
+| `no_payday` | -17.1% | -464,675 | 19/20 | the biggest single contributor |
+| `no_hold` | -8.9% | -527,251 | 20/20 | HOLD earns its place |
+| `tier1_payday` | -7.4% | -154,745 | 17/20 | tier 2 over tier 1 is worth real money |
+| `with_nudge` | -3.0% | -77,140 | 17/20 | **NUDGE is a liability** |
+| `irritation_build` | -1.3% | -41,208 | 16/20 | borderline - see below |
+| `no_optout_cost` | +0.3% | -19,543 | 16/20 | borderline - see below |
+| `no_bank_health` | +0.0% | **0** | 0/20 | **no effect at all - see class 2** |
 
-Three findings worth stating plainly:
+Four findings worth stating plainly:
 
 **NUDGE hurts, so it is off by default.** It costs 4.1 points of recovery on 19
 of 20 seeds: nudging spends a day without presenting, and the modelled lift does
@@ -520,6 +521,13 @@ does not obviously depend on which way the assumption points", not as a clean
 robustness result - the two directions are close enough that a different seed
 range could tip the label either way. That is itself the useful finding: it is
 not a load-bearing assumption.
+
+**The shared bank-health signal changes nothing - identically, on every seed.**
+Not "small", not "borderline": zero difference to the rupee on all 20. The
+inference itself works and is tested; it simply has nothing to act on, because
+the notice period is longer than any outage. That is a structural result about
+RBI Sec 6(a) rather than a defect in the model, and it is worked through in the
+class-2 section below.
 
 ### Novelty N3: what the 24-hour notice actually costs
 
@@ -641,9 +649,9 @@ CONTEXT lists six. This build implements three and declares the rest.
 | class | modelled? | success on any date | actions |
 | --- | --- | --- | --- |
 | `insufficient_funds` | **yes** - the payday model | depends on timing | all five |
+| `bank_or_psp_downtime` | **yes** - bank health x liquidity | depends on the hour | RETRY, WAIT, HOLD, CANCEL |
 | `expired_or_reissued_card` | **yes** (trivially) | **0.0** | NUDGE, HOLD, CANCEL |
 | `customer_opted_out` | **yes** (trivially) | **0.0** | CANCEL only |
-| `bank_or_psp_downtime` | stub | - | declared, not implemented |
 | `afa_incomplete` | stub | - | declared, not implemented |
 | `ambiguous_decline` | stub | - | declared, not implemented |
 
@@ -677,28 +685,22 @@ counting instead of aborting so the breaches can be reported.
 
 ### Multi-class results, 20 seeds x 500 customers
 
-`python scripts/run_multiclass.py`. Realised mix: 90.9% insufficient funds,
-6.1% expired card, 3.0% revoked.
+`python scripts/run_multiclass.py`. Realised mix: 81.7% insufficient funds,
+9.3% downtime, 6.5% expired card, 2.5% revoked.
 
 | | legacy | sequencer |
 | --- | --- | --- |
-| recovery (all classes) | 31.6% | **57.2%** |
-| presentments | 5,347 | 7,025 |
-| notifications | 3,935 | **1,505** |
-| opt-outs induced | 159 | **31** |
-| **compliance breaches** | **47** | **0** |
+| recovery (all classes) | 35.6% | **59.0%** |
+| presentments | 5,442 | 6,711 |
+| notifications | 3,947 | **1,496** |
+| opt-outs induced | 141 | **42** |
+| **compliance breaches** | **41** | **0** |
 
-**On the 143 structurally dead mandates:**
-
-| | mandates | presentments | notices | wasted cost |
-| --- | --- | --- | --- | --- |
-| legacy | 143 | 406 | 275 | Rs 41,300 |
-| sequencer | 143 | **143** | **0** | Rs 15,505 |
-
-Routing on the return code saves **263 presentments and Rs 25,795** across 1,571
-failures - **Rs 1,642 per 100 failures** - for about fifty lines of code and no
-model at all. The sequencer's 143 are the original presentments that produced
-the failure in the first place; it makes none of its own.
+**On the structurally dead mandates**, routing on the return code saves **300
+presentments and Rs 38,730** across 1,636 failures - **Rs 2,367 per 100
+failures** - for about fifty lines of code and no model at all. The sequencer's
+presentments there are the originals that produced the failure in the first
+place; it makes none of its own.
 
 **And 47 compliance breaches become 0.** A fixed schedule cannot avoid this: it
 never reads the return code, so it cannot know consent is gone. That is a
@@ -713,6 +715,148 @@ would never make.
 
 ---
 
+## Failure class 2: bank and PSP downtime
+
+The mirror image of insufficient funds, and built to make that contrast
+visible:
+
+    insufficient funds -> recovery takes DAYS.  Wait for payday. Patience wins.
+    downtime           -> recovery takes HOURS. Present at the first clear
+                          hour. Patience loses.
+
+Same engine, opposite policy - and the shape is derived rather than coded. Both
+come from the same money equation being handed a different `P(clear)` curve. No
+branch anywhere says "wait during an outage".
+
+### The generator
+
+`src/generator/banks.py`. Outages are a bank-level renewal process at **hour
+resolution**, because an outage from 01:00 to 04:00 either does or does not
+cover the 02:00 presentment and nothing coarser can express that.
+
+Outage rate scales inversely with book share:
+
+    rate = BASE_RATE * (REFERENCE_SHARE / share) ** ELASTICITY
+
+One knob, so large issuers get better uptime through a mechanism rather than a
+hardcoded two-tier table. Measured: SBI ~1.1% downtime, the smallest small
+finance banks ~5%. Durations are lognormal, median 3h, tail clipped at 18h.
+
+The outage book is a **pure function of (seed, window)**, never persisted. Any
+caller rebuilds it identically from `dataset.seed` and `dataset.meta`, so it
+survives `save_dataset`/`load_dataset` for free - `outage_book_for(dataset)`.
+
+`bank_id` is a **public** field on `Customer` and `AgentCustomer`. A real PSP
+reads it off the IFSC or UPI handle, and the whole class depends on being able
+to correlate failures across customers who share an issuer.
+
+**Realised share: 9.1% of failures carry code 91** (mean over 20 seeds).
+Individual seeds range from **1.3% to 22.3%**, and only 3 of 20 land inside the
+8-12% target band. That spread is not a tuning failure - it is the correlation
+showing up. Insufficient funds is an independent per-customer draw, so its share
+is stable; one outage fails every mandate on that issuer at once, so whether a
+large bank happened to be down on a busy debit day swings the whole seed.
+
+### The first cross-customer signal
+
+`src/agent/bank_health.py` is architecturally different from everything before
+it. `agent/payday.py` reasons about ONE customer in isolation - another
+subscriber's salary date says nothing about yours. Here it is the opposite: five
+downtime-coded failures on one bank in one hour are evidence about every OTHER
+mandate on that bank, including the ones that have not failed yet.
+
+The discriminating property, and the reason the class is separable at all:
+
+| evidence | inference |
+| --- | --- |
+| cluster of **91s** on one bank | that bank is down |
+| cluster of **04s** on one bank | those customers are broke |
+
+Both cluster in time. Only the first says anything about the bank, and that
+falls straight out of counting nothing but downtime-coded evidence. Measured:
+five 91s in an hour take the outage probability from 1.5% to 92%; twelve 04s on
+the same bank in the same hour leave it at exactly the 1.5% prior.
+
+Cold start returns the book-wide prior - never 0, because a quiet bank is not a
+healthy one, and never 1, because no finite pile of declines makes an outage
+certain.
+
+### Results, 20 seeds x 500 customers, downtime failures only
+
+| policy | recovery | presentments | into a live outage | notices |
+| --- | --- | --- | --- | --- |
+| legacy fixed | 89.5% | 334 | 1 | 186 |
+| **sequencer** | **94.1%** | 307 | 1 | 136 |
+| oracle ceiling | 94.7% | 299 | 0 | 149 |
+
+The sequencer beats legacy by 4.6 points and sits within half a point of the
+ceiling. But the interesting results are the negative ones.
+
+### Three negative results worth more than the win
+
+**1. No policy can present into the outage it is reacting to. 0 of 19,535
+outages cover two presentment windows.**
+
+Outages cap at 18h. The RBI notice period is 24h. Presentments happen once a
+day. So an outage that blocks today's debit is *always* over before the earliest
+hour a compliant agent could present again. This is structural, provable from
+two constants, and it explains why every policy scores within a few points of
+every other.
+
+**2. The shared bank-health signal changes nothing, and that follows from (1).**
+
+`no_bank_health` produces results identical to the rupee. The inference works -
+tests pin that it fires on 91-clusters and stays flat on 04-clusters - but it
+has nothing to act on. By the earliest legal presentment hour the outage is
+provably over, so the bank term multiplies every candidate date by the same
+near-one number and cannot reorder them.
+
+The signal is real at scale (the largest same-bank same-day cluster of 91s in a
+500-customer book is 10; at 5,000 customers it is 45). It would bind if outages
+could outlast the notice period - real core-banking incidents sometimes run for
+days - but none in this generator do, by construction.
+
+**This is the sharper regulatory finding.** For class 1 the 24-hour rule costs
+about nothing because the agent has no bank-side signal to react to. Here it
+costs nothing for a structural reason instead: the rule does not make the class
+unwinnable, it makes it nearly automatic - and it makes real-time bank health
+monitoring worthless for scheduling compliant retries, which is the first thing
+a payments company would instinctively build for this failure mode.
+
+**3. The money equation has no time preference, and this class exposes it.**
+
+The agent recovers as often as the oracle but takes **538 hours** after the
+outage clears against the oracle's **34**. It is not a downtime bug. Rs 2,571
+collected in thirty days scores higher than Rs 2,551 collected tomorrow, because
+the churn term decays with time and nothing penalises delay. For insufficient
+funds that barely shows - you must wait for payday anyway. For downtime the
+money was collectable the next morning.
+
+`DecisionEngine.daily_discount` prices it and **defaults to 0.0**, so no
+reported number depends on it. Measured on this class:
+
+| discount/day | recovery | mean days after clear |
+| --- | --- | --- |
+| 0.00 (as specified) | 96.1% | 23.2 |
+| 0.01 | 96.1% | **10.7** |
+| 0.03 | 96.1% | 7.5 |
+
+A 1%/day preference roughly halves the delay at no cost in recovery. It is left
+off because turning it on would change every class-1 number already reported -
+that is a call for the write-up, not a silent edit - but it is the
+highest-value change on the list.
+
+### A bug this class surfaced in class 1
+
+`PaydayModel` was treating **every** failed attempt as evidence the account was
+empty. A 91 never reached the account and a 54 has no live credential; neither
+says anything about liquidity. Counting them dragged the inferred payday around
+and made the model wait for a salary that was never the problem. Censored
+observations are now dropped rather than counted as balance failures - which
+affects class 1 too, not only downtime.
+
+---
+
 ## Package layout
 
 ```
@@ -720,6 +864,7 @@ src/generator/
   rules.py        RBI / NPCI / NACH constants. Regulations, not tunables.
   models.py       Pydantic records + the agent/truth type split.
   balance.py      The hidden daily balance process (vectorised over paths).
+  banks.py        Bank outages: hour-resolution, shared across customers.
   oracle.py       Ground truth: would_succeed, success_probability_true, curves.
   optout.py       The cancellation hazard attached to each pre-debit notice.
   population.py   Indian subscriber population. Every distribution is a knob.
@@ -735,10 +880,11 @@ src/router.py     Dispatches a failure to its class handler, on the return
 
 src/classes/      One module per failure class, same two-function interface.
   base.py           FailureClassHandler / NeverRetryHandler.
-  insufficient_funds.py  the only class with a real model behind it
+  insufficient_funds.py  payday timing; recovery takes days
+  downtime.py       bank availability x liquidity; recovery takes hours
   expired_card.py   dead credential: zero on every date, no RETRY
   opted_out.py      consent revoked: CANCEL only, RETRY is a breach
-  stubs.py          downtime / AFA / ambiguous - DECLARED, NOT IMPLEMENTED
+  stubs.py          AFA / ambiguous - DECLARED, NOT IMPLEMENTED
 
 src/audit/        Renders decision logs for human review.
   trail.py          reads what the policy recorded; never recomputes it
@@ -746,6 +892,8 @@ src/audit/        Renders decision logs for human review.
 src/agent/        AGENT-SAFE. The intelligent policy.
   payday.py         PaydayModel: when is this customer liquid, and how sure
                     are we? Three tiers; tier 2 is the calibrated one.
+  bank_health.py    The first CROSS-CUSTOMER signal: pools decline evidence
+                    across everyone sharing an issuer.
   churn.py          Opt-out risk from public fields only. The true hazard
                     reads a hidden sensitivity, so the agent estimates it.
   decision_engine.py  The money equation. Prices every legal date; returns
@@ -768,6 +916,7 @@ scripts/run_ablations.py        what each component of the agent is worth
 scripts/lead_time_ablation.py   the rupee cost of the RBI notice rule (N3)
 scripts/prior_robustness.py     method or prior? re-run with wrong priors
 scripts/run_multiclass.py       legacy vs sequencer across all failure classes
+scripts/run_downtime.py         failure class 2, and what the notice rule costs it
 scripts/show_audit.py           the full decision trail for one customer
 scripts/export_audit_sample.py  ten episodes to docs/audit_samples.md
 
@@ -779,6 +928,7 @@ tests/test_payday.py      payday inference, shock detection, calibration
 tests/test_decision_engine.py  the money equation and the churn estimator
 tests/test_sequencer.py   the policy, its audit trail, and the guardrails
 tests/test_classes.py     the router, the never-retry classes, the audit trail
+tests/test_downtime.py    outages, bank health inference, the two-condition oracle
 
 docs/audit_samples.md     ten rendered episodes, picked by category
 ```

@@ -99,21 +99,31 @@ def test_the_router_checks_its_own_consistency():
     router._check_registry_is_consistent()
 
 
-def test_only_insufficient_funds_and_the_dead_classes_are_implemented():
+def test_four_classes_are_implemented_and_two_are_still_stubs():
     """The stubs must not be mistaken for models."""
     assert router.implemented_classes() == {
         rules.FAILURE_CLASS_INSUFFICIENT_FUNDS,
         rules.FAILURE_CLASS_EXPIRED_CARD,
         rules.FAILURE_CLASS_OPTED_OUT,
+        rules.FAILURE_CLASS_DOWNTIME,
     }
     for failure_class in (
-        rules.FAILURE_CLASS_DOWNTIME,
         rules.FAILURE_CLASS_AFA_INCOMPLETE,
         rules.FAILURE_CLASS_AMBIGUOUS,
     ):
         handler = router.handler_for_class(failure_class)
         assert handler.implemented is False
         assert "NOT IMPLEMENTED" in handler.rationale
+
+
+def test_downtime_dispatches_to_the_real_handler_not_the_old_stub():
+    handler = router.route_return_code(rules.RETURN_CODE_DOWNTIME)
+    assert handler.failure_class == rules.FAILURE_CLASS_DOWNTIME
+    assert handler.implemented is True
+    assert "NOT IMPLEMENTED" not in handler.rationale
+    # No NUDGE: the customer cannot fix their bank.
+    actions = handler.allowed_actions(None)
+    assert "RETRY" in actions and "NUDGE" not in actions
 
 
 # --- the two never-retry classes ---------------------------------------------

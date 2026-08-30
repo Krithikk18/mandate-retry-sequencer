@@ -1,16 +1,106 @@
-# Mandate Retry Sequencer — synthetic data generator
+# Mandate Retry Sequencer
 
-Ground-truth training and evaluation data for a system that decides **when and
-whether** to retry a failed recurring debit, instead of firing a fixed
-day-2/4/7 schedule at every failure.
+Decides **when and whether** to retry a failed Indian recurring debit, instead
+of firing a fixed day-2/4/7 schedule at every failure. Five of six NACH/UPI
+failure classes are modelled behind a router that dispatches on the acquirer's
+return code; the sixth is a declared stub and produces no numbers.
 
 Contains the **data generator**, the **fixed-schedule baseline**, the
 **evaluation harness** that scores any policy against the oracle, and the
-**sequencer** itself - payday inference, bank-health inference, OTP-completion
+**sequencer** itself — payday inference, bank-health inference, OTP-completion
 inference, the money equation, and the full RETRY / NUDGE / WAIT / HOLD /
-CANCEL action set, with ablations for every component. Five of the six failure
-classes are implemented behind a router that dispatches on the return code; the
-sixth is a declared stub and produces no numbers.
+CANCEL action set, with an ablation for every component.
+
+Every figure below comes from a reproducible run — 20 seeds x 500 customers
+unless the line says otherwise — scored against a ground-truth oracle that knows
+what every *unattempted* retry date would have done, so policy comparisons are
+exact rather than sampled. The cost parameters those policies are scored with
+(processing fees, carrying cost, goodwill) are documented estimates, and are
+marked as such wherever they appear.
+
+## Measured money recovered
+
+`python scripts/run_multiclass.py` — 20 seeds x 500 customers. Realised failure
+mix: 76.8% insufficient funds, 8.9% downtime, 6.3% expired card, 5.6% AFA
+incomplete, 2.4% revoked consent.
+
+| | legacy fixed schedule | sequencer |
+| --- | --- | --- |
+| **money recovered** | Rs 2,293,936 | **Rs 3,839,648** |
+| recovery rate | 36.2% | **59.4%** |
+| pre-debit notifications sent | 4,091 | **1,633** |
+| opt-outs induced | 146 | **45** |
+| **compliance breaches** | **41** | **0** |
+
+**+Rs 1,545,712 recovered (+67.4%) on 60% fewer notifications and zero
+breaches.** Money is reported ahead of rate deliberately: the episodes the
+sequencer wins are disproportionately the large ones, so a rate-only table
+weights a Rs 199 streaming mandate and a Rs 19,000 one equally — the wrong
+weighting for a revenue-recovery claim.
+
+Against Razorpay's four nouns: **money recovered** above; **compliant
+escalation** — every presentment obeys the RBI 24-hour pre-debit notice, the
+NPCI 4-attempt ceiling and the 00:00-07:00 execution window, and the simulator
+*raises* rather than clamps on a violation; **stopping rules** — HOLD and
+CANCEL are priced against each other in rupees, not assumed
+([Holding has a price](#holding-has-a-price)); **audit trail** — every decision
+records what the agent believed and what each candidate date was worth
+([The audit trail](#the-audit-trail)).
+
+## Four findings
+
+The recovery number is the deliverable. These are the results worth arguing
+about, and three of the four are negative.
+
+**1. The 24-hour notice rule structurally forecloses short outages.**
+Zero of 48,779 generated bank outages span two presentment windows — outages
+cap at 18 hours, the notice period is 24, presentments are daily. No compliant
+policy can react to the outage it is responding to. Not a tuning result; it
+follows from two constants.
+→ [Three negative results worth more than the win](#three-negative-results-worth-more-than-the-win)
+
+**2. Cross-customer bank-health inference works, and is worth exactly nothing.**
+Five downtime-coded declines on one issuer *within an hour* move its outage
+probability from 1.5% to 92%; twelve insufficient-funds declines on the same
+issuer in the same hour leave it at 1.5%. The inference is correct and it
+changes zero rupees on 20 of 20 seeds, because of finding 1. Real-time
+bank-health monitoring — the first thing a payments company would build for this
+failure mode — cannot pay for itself under Sec 6(a).
+
+**3. Pricing attrition with a book-average sensitivity is worse than not
+pricing it.** The opt-out term is right in principle: a pre-debit notice
+genuinely can destroy a mandate, and no US or EU retry engine models this
+because no US or EU regime mandates the notice. The *estimator* is what fails.
+Measured over 5 seeds, the agent assumes 0.0300 against a true book mean of
+0.0302 — correct on average, while 11.3% of customers are under-priced by more
+than 2x and 32.0% over-priced by more than 2x. The errors do not cancel.
+
+**4. An intervention that improves success probability can destroy value by
+unlocking an action that carries regulatory cost.** Two nudges lift one
+customer's P(clear) from 0.104 to 0.180, which flips the best date from
+-Rs 952 to +Rs 536, which flips HOLD into RETRY. A nudge carries no pre-debit
+notice; the RETRY it enables does. Seven cycles, seven notices, opt-out on the
+seventh, **Rs 231,228 of lifetime value gone** — against Rs 6,474 of goodwill
+across all 14 nudges in that arm. The true cost of an intervention is the
+actions it unlocks, and finding 3 is why it was mispriced.
+→ [The worst seed, traced](#the-worst-seed-traced-a-nudge-does-not-create-an-opt-out-it-creates-a-retry)
+
+### Where the agent is far from optimal, and why
+
+Headroom captured, per class — the share of the legacy-to-oracle gap the
+sequencer actually takes, measured **by value** on each class in isolation:
+
+| class | legacy | oracle | gap | captured | inference shape | evidence available |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 insufficient funds | 32.7% | 80.4% | 47.7 pp | **73.5%** | one customer, alone | ~12 cycles of attempt history |
+| 5 AFA incomplete | 49.5% | 92.4% | 42.9 pp | **43.4%** | one customer, alone | a handful of sparse `1A` codes |
+| 2 bank downtime | 93.9% | 99.2% | 5.3 pp | 78.7% | pooled across an issuer | every mandate on that bank |
+
+Classes 1 and 5 have near-identical gaps and the agent captures 73.5% of one
+and 43.4% of the other — the difference is how much evidence the latent
+variable leaves behind. Class 2's 78.7% flatters it: capturing most of a
+5.3-point gap is easy, which is why percentage-captured must be read next to
+the gap it is a percentage of.
 
 ---
 

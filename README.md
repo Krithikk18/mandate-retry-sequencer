@@ -47,6 +47,46 @@ CANCEL are priced against each other in rupees, not assumed
 records what the agent believed and what each candidate date was worth
 ([The audit trail](#the-audit-trail)).
 
+## See it work
+
+```bash
+pip install -e ".[dev]"
+python scripts/show_audit.py --customer CUST_0013 --seed 42
+```
+
+One failed debit, decided day by day, with the arithmetic behind every choice
+and the fixed schedule's result on the same customer for comparison:
+
+```
+20 Jul   DEBIT FAILED - return code 04
+
+20 Jul   DECISION: WAIT  (unchanged for 19 days)
+         Best candidate 09 Aug scored +Rs 161
+           P(clear) 0.81 x Rs 339            =    +Rs 274
+           opt-out risk 0.027 x Rs 4,068     =    -Rs 108
+         best date is not yet due for commitment
+...
+09 Aug   PRESENTMENT - SUCCEEDED, Rs 339 recovered
+
+OUTCOME: RECOVERED · net value +Rs 329 · 20 days to resolution
+legacy_fixed on the same customer: presented 22 Jul, 24 Jul, 27 Jul; cancelled,
+3 notifications sent, net -Rs 4,088
+```
+
+What the generator knows and the agent never sees: this customer is paid on the
+7th and billed on the 20th, so the failure lands eighteen days before any money
+arrives. The fixed schedule walks *away* from payday — its three retries sit at
+true clearing probabilities of 0.54, 0.34 and 0.03 — and then cancels a mandate
+that would have cleared on 7 August. The sequencer waits for the salary and
+collects. The Rs 4,417 swing between the two is almost entirely the annual LTV
+the baseline threw away.
+
+Run `python scripts/inspect_episode.py --customer CUST_0013 --policy legacy` to
+see that same episode with the hidden balance and the true probabilities
+alongside each decision. `--pick recovered|hold|optout|cancel` selects an
+episode by outcome, `--policy legacy` replays it under the baseline, and
+`--style json` emits it for machines.
+
 ## Four findings
 
 The recovery number is the deliverable. These are the results worth arguing
@@ -405,9 +445,11 @@ python scripts/inspect_episode.py --policy legacy --worst
 
 `inspect_episode.py` is the audit trail: every decision, the reasoning behind
 it, the hidden balance on that day, the true success probability of each
-scheduled date, and the outcome. On CUST_0013 the baseline presents on +2 and +4
-at a true probability of 0.00 each before catching payday on +7; the oracle
-presents once, on payday, with one notification instead of three.
+scheduled date, and the outcome. On CUST_0013 the baseline presents on +2, +4
+and +7 at true clearing probabilities of 0.54, 0.34 and 0.03 - walking *away*
+from a payday that is eighteen days out - and then cancels. The trail prints the
+date that would have cleared (7 August) directly underneath, which is the whole
+argument for the oracle in one line.
 
 ---
 
@@ -792,46 +834,53 @@ no trail at all: it looks like evidence while being a second opinion.
 
 ```
 ══════════════════════════════════════════════════════════════════════
-CUST_0013 · Rs 339 · upi_autopay · 5 months · LTV Rs 4,068
+CUST_0013 · Rs 339 · upi_autopay · 2 months · LTV Rs 4,068
 Failure class: insufficient_funds (return code 04)
 Policy: sequencer
 ══════════════════════════════════════════════════════════════════════
 
-02 Jul   DEBIT FAILED - return code 04
+20 Jul   DEBIT FAILED - return code 04
          Attempts used 1/4 · notifications sent 0
 
-02 Jul   DECISION: WAIT  (unchanged for 7 days)
-         Payday posterior: day 7 (conf 0.73)
+20 Jul   DECISION: WAIT  (unchanged for 19 days)
+         Payday posterior: day 1 (conf 0.30)
          Shock probability: 0.05
-         Best candidate 10 Jul scored +Rs 191
-           P(clear) 0.88 x Rs 339            =    +Rs 298
+         Best candidate 09 Aug scored +Rs 161
+           P(clear) 0.81 x Rs 339            =    +Rs 274
            processing                        =      -Rs 5
-           bounce risk 0.12 x Rs 0           =       Rs 0
-           opt-out risk 0.025 x Rs 4,068     =    -Rs 102
-         Runners-up: 11 Jul +Rs 191 · 09 Jul +Rs 190 · 12 Jul +Rs 190
+           bounce risk 0.19 x Rs 0           =       Rs 0
+           opt-out risk 0.027 x Rs 4,068     =    -Rs 108
+         Runners-up: 10 Aug +Rs 161 · 08 Aug +Rs 159 · 07 Aug +Rs 156
          best date is not yet due for commitment
 
-09 Jul   DECISION: RETRY
-         ...
+08 Aug   DECISION: RETRY
+         Payday posterior: day 1 (conf 0.30)
+         Shock probability: 0.05
+         Best candidate 09 Aug scored +Rs 161
+           P(clear) 0.81 x Rs 339            =    +Rs 274
+           processing                        =      -Rs 5
+           bounce risk 0.19 x Rs 0           =       Rs 0
+           opt-out risk 0.027 x Rs 4,068     =    -Rs 108
+         Runners-up: 10 Aug +Rs 161 · 11 Aug +Rs 154 · 12 Aug +Rs 147
          Compliance: committed 26h ahead (need 24h) ✓
                      02:00 inside 00:00-07:00 window ✓
                      attempt 2 of 4 ✓
+         highest positive expected value in the cycle
 
-10 Jul   PRESENTMENT - SUCCEEDED, Rs 339 recovered
+09 Aug   PRESENTMENT - SUCCEEDED, Rs 339 recovered
          Attempts used 2/4 · notifications sent 1
 
 ──────────────────────────────────────────────────────────────────────
-OUTCOME: RECOVERED · net value +Rs 329 · 8 days to resolution
+OUTCOME: RECOVERED · net value +Rs 329 · 20 days to resolution
 Mandate retained · LTV preserved Rs 4,068
-legacy_fixed on the same customer: presented 04 Jul, 06 Jul, 09 Jul;
-recovered, 3 notifications sent, net +Rs 319
+legacy_fixed on the same customer: presented 22 Jul, 24 Jul, 27 Jul; cancelled, 3 notifications sent, net -Rs 4,088
 ══════════════════════════════════════════════════════════════════════
 ```
 
 Three things it does deliberately: shows the **arithmetic** rather than the
 total, so a reader can find the term they disagree with; shows the
-**runners-up**, because "we chose the 7th" is an assertion while "we chose the
-7th at +Rs 191 over the 9th at +Rs 190" is a reason; and prints the **legacy
+**runners-up**, because "we chose the 9th" is an assertion while "we chose the
+9th at +Rs 161 over the 12th at +Rs 147" is a reason; and prints the **legacy
 comparison** on the same customer, so no episode is shown in isolation.
 
 Consecutive identical decisions collapse into one line with a day count -

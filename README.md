@@ -519,54 +519,106 @@ mandates retained** (65.3 vs 30.9).
 
 ### Ablations: what each piece is worth
 
-`python scripts/run_ablations.py`. Deltas are **paired within each seed**, so
-seed noise cancels; `seeds worse` counts how many of the 20 the variant lost on,
-because a real effect shows up on most seeds rather than only in the mean.
+`python scripts/run_ablations.py`. Deltas are `variant - full` and **paired
+within each seed** - the same customers, the same draws - so seed noise cancels.
+A negative delta means the variant is the worse configuration.
 
-Deltas are `variant - full`, so a negative number means the variant is worse.
-`seeds worse` counts how many of the 20 the variant lost net value on.
+Seeds are counted in **three** buckets, not two. `W` is seeds where the variant
+came out worse, `B` better, `T` tied. Consistency is judged over `W + B` only -
+the seeds where the variant actually **bit** - because a tie is an absence of
+evidence, not a disagreement, and `bit` is printed so the denominator is never
+hidden.
 
-| variant | d recovery | d net value | seeds worse | verdict |
-| --- | --- | --- | --- | --- |
-| `no_payday` | -16.5% | -457,312 | 18/20 | the biggest single contributor |
-| `no_hold` | -9.9% | -859,263 | 20/20 | HOLD earns its place |
-| `tier1_payday` | -7.1% | -151,935 | 16/20 | borderline - tier 2 over tier 1 |
-| `with_nudge` | -3.1% | -345,430 | 19/20 | **NUDGE on class 1 is a liability** |
-| `irritation_build` | -1.2% | -38,845 | 13/20 | **not consistent - see below** |
-| `no_afa_nudge` | -0.3% | -21,077 | 7/20 | **not consistent - see class 5** |
-| `no_optout_cost` | +1.0% | +37,394 | 9/20 | **not consistent - see below** |
-| `no_bank_health` | +0.0% | **0** | 0/20 | **no effect at all - see class 2** |
+| variant | d recovery | d net value | W/B/T | bit | verdict |
+| --- | --- | --- | --- | --- | --- |
+| `no_payday` | -16.5% | -457,312 | 18/2/0 | 20 | the biggest single contributor |
+| `no_hold` | -9.9% | -859,263 | 20/0/0 | 20 | HOLD earns its place |
+| `tier1_payday` | -7.1% | -151,935 | 16/4/0 | 20 | borderline - tier 2 over tier 1 |
+| `with_nudge` | -3.1% | -345,430 | 19/1/0 | 20 | **NUDGE on class 1 is a liability** |
+| `irritation_build` | -1.2% | -38,845 | 13/7/0 | 20 | **not consistent - see below** |
+| `no_afa_nudge` | -0.3% | -21,077 | 7/13/0 | 20 | **not consistent - see class 5** |
+| `no_optout_cost` | +1.0% | +37,394 | 9/11/0 | 20 | **not consistent - see below** |
+| `no_bank_health` | +0.0% | **0** | 0/0/20 | **0** | **no effect at all - see class 2** |
 
-**Three of these verdicts moved when the fifth class was added, and all three
-moved toward "do not claim it".** The book grew from four generated classes to
-five, so every book-wide average is now diluted across more and more varied
-failures, and two effects that previously cleared this project's 15-of-20
-consistency threshold no longer do. Those are reported as weakened below rather
-than quietly re-baselined; the two strong results (`no_payday`, `no_hold`) got
-stronger.
+**The three-bucket count was a bug fix, and it is worth recording that it
+changed no verdict.** The previous version counted every delta that was not
+negative as a point against the default configuration, which folded ties into
+the case against. That is genuinely wrong, and on a thin class it looked likely
+to matter a great deal. It does not, and the reason is worth knowing: only
+`no_bank_health` ever ties, because every other variant moves net value by more
+than a rupee on every seed. `no_afa_nudge` in particular ties **never** - even
+on seeds where nudging changes no outcome at all, it still spent goodwill, so
+the net value always differs. Those seeds are real losses, not miscounts. The
+fix stands because the denominator is now honest and a future variant that does
+tie will be handled correctly; it bought no result.
+
+**Three verdicts moved when the fifth class was added, and all three moved
+toward "do not claim it".** The book grew from four generated classes to five,
+so every book-wide average is diluted across more and varied failures, and two
+effects that previously cleared this project's 15-of-20 consistency threshold no
+longer do. They are reported as weakened rather than quietly re-baselined; the
+two strong results (`no_payday`, `no_hold`) got stronger.
 
 Five findings worth stating plainly:
 
-**NUDGE hurts, so it is off by default.** It costs 4.1 points of recovery on 19
-of 20 seeds: nudging spends a day without presenting, and the modelled lift does
-not pay for the delay. The switch is kept so the finding stays reproducible
-rather than deleted.
+**NUDGE on insufficient funds hurts, so it is off by default.** It costs 3.1
+points of recovery and Rs 345,430 of net value, and is worse on 19 of the 20
+seeds it bit: nudging spends a day without presenting, and asking somebody with
+no money to find some does not pay for the delay. The switch is kept so the
+finding stays reproducible rather than deleted.
 
-**The opt-out cost term no longer pays for itself, and this is a downgrade from
-what was previously reported.** On the four-class book it returned Rs 35,819 of
-net value on 15 of 20 seeds - exactly the consistency threshold. On the
-five-class book, dropping the term *improves* both recovery (+1.0%) and net
-value (+Rs 37,394), and the direction agrees on only 9 of 20 seeds, which is
-close to a coin flip. The mechanism still works - the term does halve induced
-opt-outs, which is what it is for - but the LTV it saves no longer outruns the
-recovery it forgoes.
+(This paragraph previously read "4.1 points on 19 of 20" while the table beside
+it said -3.0%. The prose was wrong and had been since the class-1 build; it now
+quotes the measured figure.)
 
-**N2 must therefore be claimed as a mechanism that is measured and priced, not
-as a source of net gain.** The defensible sentence is "retries are a dual-effect
-action and this project is the one that puts a rupee figure on the second
-effect", not "pricing churn made us money". Nothing about the finding was tuned
-to reach that conclusion; the number moved when the population got harder, and
-it is reported as it came out.
+**The opt-out term is right in principle and its ESTIMATOR is what fails.** This
+is a downgrade from what was previously reported, and the distinction matters.
+
+On the four-class book, dropping the term cost Rs 35,819 on 15 of 20 seeds -
+exactly the consistency threshold. On the five-class book the split is 9 worse /
+11 better, which is **no consistent effect in either direction** and must not be
+read as "dropping it helps" any more than the old number should have been read
+as "keeping it pays". The mean favours dropping it by Rs 37,394; the seeds do
+not agree; that is the whole result.
+
+The economics are not in doubt. A pre-debit notice genuinely can destroy a
+mandate - RBI Sec 6(c) requires it to carry an opt-out - and the term does halve
+induced opt-outs (1.6 vs 3.4), which is the mechanism doing exactly what it is
+for. What fails is the estimate. `agent/churn.py` prices **every** customer at
+`ASSUMED_OPTOUT_SENSITIVITY = 0.03` because the true per-customer sensitivity is
+a hidden field the agent may not read. Measured against the truth across 5 seeds:
+
+| | value |
+| --- | --- |
+| agent's single assumed sensitivity | 0.0300 |
+| true book mean | 0.0302 |
+| true median | 0.0238 |
+| true p10 / p90 | 0.0057 / 0.0628 |
+| customers under-priced by more than 2x | **11.3 %** |
+| customers over-priced by more than 2x | **32.0 %** |
+
+**The book average is almost exactly right and nearly half the individual
+customers are wrong by more than a factor of two.** The agent over-penalises the
+placid - declining retries it should take - and under-penalises the twitchy,
+taking retries that destroy mandates. Those errors do not cancel, because the
+downside of the second is an entire annual LTV while the downside of the first
+is one subscription payment. On a bigger, more heterogeneous book there are more
+of both, which is why a term that narrowly paid on four classes stops paying on
+five.
+
+The single largest loss in class 5 is exactly this failure: a customer whose
+true sensitivity is 0.0779 (2.6x under-priced) took a marginal +Rs 536 retry
+that cost Rs 231,228 of LTV. Priced correctly the agent would have held. The
+trace is in the class-5 section below.
+
+**So N2 should be claimed as a mechanism that is correctly identified and
+correctly priced in structure, with an estimator that is only as good as the
+per-customer data available - and on this generator, that is not good enough for
+the term to pay for itself.** The defensible sentence is "retries are a
+dual-effect action and this project puts a rupee figure on the second effect and
+then measures whether pricing it helps", not "pricing churn made us money".
+Nothing was tuned to reach that conclusion; the number moved when the population
+got harder and is reported as it came out.
 
 **The irritation direction barely matters, and now falls below the consistency
 threshold outright.** 13 of 20 seeds, against a 15-seed threshold, for a mean
@@ -1057,6 +1109,52 @@ is thin:
 Roughly five episodes per seed, and a per-seed standard deviation of **18.0 %**.
 Quote the value figures; the rate is context, not the result.
 
+### Headroom captured: 43.4 %, and the gap is the most interesting number here
+
+**This is the number to look at, and it is much lower than class 1.**
+
+| class | floor | ceiling | gap | **captured** | inference shape | evidence available |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 insufficient funds | 32.7 % | 80.4 % | 47.7 pp | **73.5 %** | one customer, alone | ~12 cycles of structured attempt history |
+| 2 bank downtime | 93.9 % | 99.2 % | 5.3 pp | **78.7 %** | pooled across an issuer | every other mandate on the same bank |
+| **5 AFA incomplete** | **49.5 %** | **92.4 %** | **42.9 pp** | **43.4 %** | one customer, alone | a handful of sparse `1A` observations |
+
+(Measured by value, on each class in isolation, 20 seeds. By rate the figures
+are 72.7 %, 87.5 % and 44.0 % — the ordering is the same.)
+
+Read class 2's number carefully: its gap is only **5.3 points wide**, so
+capturing 78.7 % of it is worth Rs 15k, and the percentage flatters a class
+where almost nothing was on the table. Classes 1 and 5 are the fair comparison —
+**near-identical gaps of 47.7 and 42.9 points, and the agent captures 73.5 % of
+one and 43.4 % of the other.**
+
+The explanation is legible, and it is a result about *when class-specific
+modelling pays* rather than a defect:
+
+- **Payday** is inferred from twelve cycles of attempt dates and outcomes, and
+  the thing being inferred is a calendar event that repeats monthly. Every cycle
+  is another observation of the same recurring structure.
+- **Bank health** has less history per customer but pools across an entire
+  issuer, so a mandate that has never failed still inherits a sharp estimate
+  from everyone else on that bank.
+- **OTP responsiveness** has neither. It is a latent per-customer trait, it
+  cannot be pooled (whether *you* authenticate says nothing about whether
+  anyone else does), and the only evidence is that customer's own `1A` history —
+  which exists only for the ~3 % of mandates above the Sec 8(a) ceiling, and is
+  sparse even there.
+
+So the three classes line up as **three inference shapes, three quantities of
+evidence, three distances from the ceiling** — and they line up in that order.
+The agent is not worse at class 5 because the model is worse; it is worse
+because there is less to learn from. A merchant reading this should expect
+class-specific modelling to pay in proportion to how much per-entity history the
+class generates, and should not expect a good model to close a gap the data
+cannot support.
+
+The remaining 56.6 % is not all recoverable by better inference, either. Some of
+it is the interventional ceiling itself: the oracle knows which nudges will
+work, and no estimator can.
+
 ### What the interventional action is actually worth
 
 | variant | money | recovery | nudges | attributable | net value |
@@ -1098,24 +1196,86 @@ value, across all 20 seeds:
 
 The positive mean is carried almost entirely by **four seeds** where a nudge
 rescued a five-figure mandate: +Rs 240,023, +Rs 211,829, +Rs 205,520 and
-+Rs 47,421. On the other sixteen the money recovered is **identical** — the
-gate opened on its own, or never opened — and the only difference is the
-goodwill the nudges spent, which is a small certain loss. One seed goes the
-other way hard: **-Rs 216,518**, where nudging burned the day that mattered and
-a large mandate was lost that the date-only policy caught.
++Rs 47,421. On **fifteen** of the twenty the money recovered is *identical* —
+the gate opened on its own, or never opened — and the only difference is the
+goodwill the nudges spent, which is a small certain loss.
 
-**Against this project's 15-of-20 threshold, that is NOT a consistent effect and
-must not be claimed as one.** The honest statement is: *nudging is worth
-Rs 421,534 in expectation across 20 seeds, and it is a high-variance bet that
-loses a little most of the time and wins a lot occasionally, because the class it
-acts on is a handful of very large mandates.* That is a real and defensible
-finding — a merchant should still take a positive-expectation bet — but it is
-not the same claim as `no_payday` or `no_hold`, which lose on 18 and 20 seeds
-out of 20 respectively.
+One seed goes the other way hard: **-Rs 216,518**. That one recovered
+identically too; the loss is entirely destroyed LTV, and the mechanism is traced
+below because it is not the one you would guess.
 
-The thinness of the class is the cause, not a separate problem. Five episodes
-per seed cannot produce a consistent per-seed effect no matter how good the
-action is.
+**On 13 of those seeds nudging recovered exactly Rs 0 extra and still spent
+goodwill.** That was worth checking rather than assuming: the three-bucket
+ablation count above shows `no_afa_nudge` tying on **zero** seeds out of 20, so
+these are not do-nothing seeds being miscounted - they are real, small,
+certain losses. Nudging is a bet that costs a little every time and pays only
+when it flips an outcome.
+
+The thinness of the class is why the bet is so lumpy. Five episodes per seed
+cannot produce a consistent per-seed effect no matter how good the action is.
+
+### The worst seed, traced: a nudge does not create an opt-out, it creates a RETRY
+
+One seed loses **Rs 216,518** — about 13% of the entire class's value at risk in
+a single seed. That is far too large to leave inside an average, so here is the
+mechanism, on `CUST_0254`, seed 15.
+
+The customer has a `otp_responsiveness` of **0.06**: they essentially never
+authenticate. Their history carries 41 `1A`s against 3 `04`s, so the agent
+estimates 0.125 — close to the truth and correctly falling as more refusals
+arrive. This is not an inference failure.
+
+What happens is the **money equation changes which ACTION it selects**:
+
+| | P(clear) on the best date | best date scores | action |
+| --- | --- | --- | --- |
+| no nudging | 0.104 | **-Rs 952** | HOLD |
+| after two nudges | 0.180 | **+Rs 536** | RETRY |
+
+Two nudges lift P(authenticated) from 0.125 to 0.215, which lifts P(clear) past
+the point where presenting looks worthwhile — by a margin of **Rs 536 on a
+Rs 19,269 mandate**. And a RETRY is not free the way a nudge is: it fires an RBI
+Sec 6(a) pre-debit notice, which under Sec 6(c) must carry an AFA-validated
+opt-out.
+
+So the episode runs: nudge, nudge, present, refused `1A`, hold, and again the
+next cycle, and again — seven cycles, seven notices — until the customer uses
+one. **Rs 231,228 of annual LTV destroyed.** With nudging off the agent HOLDs
+all twelve cycles, sends **zero** notifications, and ends at -Rs 40,864 in
+carrying cost with the mandate intact.
+
+**The out-of-band property is not violated and this is not a bug.** The nudges
+themselves sent no notification and created no opt-out opportunity — the trail
+shows `not=0` beside every one of them. The finding is second-order and sharper
+for it:
+
+> The real cost of a nudge is not the goodwill it spends. It is the
+> **presentments it unlocks**, and presentments carry a cancel-capable notice
+> that nudges do not.
+
+The goodwill charge across all 14 nudges here is Rs 6,474 — trivial. The action
+it enabled cost Rs 231,228.
+
+**And it was the churn estimator that made the flip go the wrong way.** This
+customer's true `optout_sensitivity` is **0.0779**, against the book-average
+0.03 that `agent/churn.py` prices everybody at — 2.6x under-priced. Re-scoring
+the same decision with the true sensitivity:
+
+    recovery 3,461 - processing 15 - churn(assumed 0.03)  2,499 = +Rs 536   RETRY
+    recovery 3,461 - processing 15 - churn(TRUE   0.0779) 6,486 = -Rs 3,040 HOLD
+
+**Priced correctly, the agent would have held and kept the mandate.** The
+largest single loss in class 5 is therefore not a nudging failure at all — it is
+the N2 estimator failure, showing up where the stakes are highest.
+
+This is irreducible within the rules of the project rather than something to
+patch: `optout_sensitivity` is a hidden field, the agent may not read it, and
+the generator draws it independently of every public field, so there is no
+observable signal from which a better per-customer estimate could be built. What
+it argues for is a **variance-aware** churn term — being more reluctant to take
+a marginal positive-value RETRY when the LTV at stake is two orders of magnitude
+above the amount being collected — which is a real next refinement and is not
+implemented here.
 
 ### Why legacy fails here, and it is a third distinct reason
 

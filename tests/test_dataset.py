@@ -60,13 +60,39 @@ def test_a_different_seed_produces_a_different_dataset(dataset):
 
 # --- 5. failure realism ------------------------------------------------------
 
+# ONE definition of the band, read by both failure-rate tests below.
+#
+# They used to carry their own literals and drifted apart when the fifth class
+# widened the spread: the per-seed test still demanded <= 0.20 while the
+# multi-seed test allowed 0.24, so the two disagreed about what counts as a
+# realistic world. It was not flaky only because the per-seed test is pinned to
+# three hand-picked seeds - it would have failed the moment a fourth was added.
+# Sharing the constants is the fix, because it makes the disagreement
+# impossible rather than merely absent today.
+#
+# FAILURE_RATE_MEAN_BAND is the real quality gate and is asserted on the MEAN
+# across seeds. FAILURE_RATE_SEED_BAND is wider on purpose: it is a sanity
+# check that no individual seed produces an absurd world, not a claim about the
+# process. CONTEXT is explicit that single runs are not evidence, so the
+# per-seed assertion is deliberately the weaker of the two.
+FAILURE_RATE_MEAN_BAND = (0.10, 0.20)
+FAILURE_RATE_SEED_BAND = (0.05, 0.24)
+
 
 @pytest.mark.parametrize("seed", [42, 7, 2024])
-def test_natural_failure_rate_is_realistic(seed):
-    """The rate is never imposed, so this is a genuine property of the process."""
+def test_no_single_seed_produces_an_absurd_failure_rate(seed):
+    """A sanity check on one run, and deliberately nothing more.
+
+    The rate is never imposed, so this is a genuine property of the process -
+    but a proportion measured over ~85 failures swings hard, and any bound
+    tight enough to be interesting here would be measuring the seed rather than
+    the generator. The claim that matters is made on the mean, in the test
+    below.
+    """
     ds = generate_dataset(n_customers=400, seed=seed)
     rate = ds.natural_failure_rate
-    assert 0.05 <= rate <= 0.20, f"seed {seed} gave a failure rate of {rate:.3f}"
+    low, high = FAILURE_RATE_SEED_BAND
+    assert low <= rate <= high, f"seed {seed} gave a failure rate of {rate:.3f}"
 
 
 def test_failure_rate_mean_and_spread_across_seeds(multi_seed_meta):
@@ -81,14 +107,21 @@ def test_failure_rate_mean_and_spread_across_seeds(multi_seed_meta):
     roughly 1 seed in 20, which is a small-sample property of a proportion over
     ~70 failures rather than an unrealistic world.
 
+    Both bounds come from the shared constants above, so this test and the
+    per-seed sanity check cannot drift apart again.
+
     What must NOT happen in response to this test is tuning
     ``OTP_RESPONSIVENESS_BETA`` down to buy headroom. That constant is a claim
     about how often people complete an authentication challenge, and it is not
     for sale to a threshold.
     """
     rates = np.array([m["natural_failure_rate"] for m in multi_seed_meta])
-    assert 0.05 <= rates.min() and rates.max() <= 0.24
-    assert 0.10 <= rates.mean() <= 0.20, f"mean failure rate {rates.mean():.3f}"
+    seed_low, seed_high = FAILURE_RATE_SEED_BAND
+    mean_low, mean_high = FAILURE_RATE_MEAN_BAND
+    assert seed_low <= rates.min() and rates.max() <= seed_high
+    assert mean_low <= rates.mean() <= mean_high, (
+        f"mean failure rate {rates.mean():.3f}"
+    )
 
 
 def test_downtime_share_is_volatile_because_outages_are_correlated(multi_seed_meta):

@@ -30,6 +30,31 @@ read. Judge it in scripts/run_afa.py, where the class is isolated; it is listed
 here so the ablation table has no missing row.
 
 Legacy and the oracle ceiling are shown alongside as the floor and the roof.
+
+Counting seeds: WORSE / BETTER / TIED, and the denominator matters
+-----------------------------------------------------------------
+Consistency is measured over the seeds where the variant ACTUALLY BIT - the
+ones where it changed the outcome at all - and not over all twenty.
+
+The distinction is invisible on a dense class and decisive on a thin one.
+Insufficient funds carries ~70 episodes per seed, so a variant that touches it
+at all moves the seed total and no seed is ever exactly tied. AFA carries ~5
+episodes per seed, so on most seeds a variant that only acts on that class
+changes nothing whatsoever. An earlier version of this script counted every
+delta that was not negative as evidence AGAINST the default configuration,
+which silently folded those do-nothing seeds into the case against - and the
+thinner the class, the more of them there were.
+
+A tie is not a disagreement. It is an absence of evidence, and it has to be
+reported as one.
+
+**A low bite count is itself a finding**, not a caveat to be worked around. If a
+variant bites on 8 of 20 seeds, that says the component it removes only matters
+on a minority of books - which for a class-specific switch is a statement about
+how thin the class is. The table prints the bite count next to every verdict so
+the denominator is never hidden, and a verdict computed over very few bitten
+seeds is labelled as resting on thin evidence rather than being promoted to a
+clean result.
 """
 
 from __future__ import annotations
@@ -48,6 +73,19 @@ from policy import LegacyFixedSchedule  # noqa: E402
 from policy.oracle_policy import OraclePolicy  # noqa: E402
 
 RULE = "=" * 100
+
+# A seed counts as TIED when the variant moved net value by less than a rupee
+# AND did not move recovery at all. Both thresholds are the ones this script
+# already used for its "no effect at all" band, reused deliberately rather than
+# introduced as a new tunable: a variant that changed the book by under one
+# rupee and recovered exactly the same episodes did not bite on that seed.
+TIE_NET_EPSILON: float = 1.0
+TIE_RATE_EPSILON: float = 1e-9
+
+# Below this many bitten seeds, a consistency ratio is arithmetic rather than
+# evidence - 3 of 4 and 15 of 20 are not the same claim. Verdicts computed over
+# fewer than this are labelled as thin rather than promoted.
+MIN_BITTEN_FOR_A_VERDICT: int = 8
 
 VARIANTS: dict[str, dict] = {
     "full": {},
@@ -124,11 +162,17 @@ def main() -> None:
 
     print(f"\n{RULE}\nWHAT EACH COMPONENT IS WORTH\n{RULE}")
     print("  Deltas are against `full`, paired within each seed - the same")
-    print("  customers, the same draws - so seed noise cancels. `seeds worse`")
-    print("  counts how many of the seeds the variant lost on: a real effect")
-    print("  shows up on most seeds, not just in the mean.\n")
+    print("  customers, the same draws - so seed noise cancels.\n")
+    print("  W / B / T counts the seeds where the variant came out WORSE than")
+    print("  `full`, BETTER than it, or TIED with it. Consistency is judged over")
+    print("  W + B only - the seeds where the variant actually BIT - because a")
+    print("  tie is an absence of evidence, not a disagreement. The bite count")
+    print("  is printed with every verdict so the denominator is never hidden.\n")
     full_rows = report.per_seed["full"]
-    print(f"  {'variant':<18} {'d recovery':>12} {'d net value':>14} {'seeds worse':>12}   verdict")
+    print(
+        f"  {'variant':<18} {'d recovery':>12} {'d net value':>14} "
+        f"{'W/B/T':>12} {'bit':>5}   verdict"
+    )
     for name in VARIANTS:
         if name == "full":
             continue
@@ -137,8 +181,25 @@ def main() -> None:
         net_deltas = [v.net_value_total - f.net_value_total for v, f in zip(rows, full_rows)]
         delta_rec = sum(rec_deltas) / len(rec_deltas)
         delta_net = sum(net_deltas) / len(net_deltas)
-        worse = sum(1 for d in net_deltas if d < 0)
-        agreeing = max(worse, len(net_deltas) - worse) / len(net_deltas)
+
+        # Three buckets, not two. A seed on which the variant changed nothing is
+        # NOT a seed on which the variant did better, and counting it as one is
+        # how a do-nothing outcome on a thin class turns into a point against
+        # the default configuration.
+        worse = better = tied = 0
+        for net_delta, rec_delta in zip(net_deltas, rec_deltas):
+            if (
+                abs(net_delta) <= TIE_NET_EPSILON
+                and abs(rec_delta) <= TIE_RATE_EPSILON
+            ):
+                tied += 1
+            elif net_delta < 0:
+                worse += 1
+            else:
+                better += 1
+
+        bitten = worse + better
+        agreeing = max(worse, better) / bitten if bitten else 0.0
 
         # Three bands, not two. An effect that shows up on 15 of 20 seeds is
         # not the same claim as one that shows up on all 20, and collapsing
@@ -150,24 +211,38 @@ def main() -> None:
         # actually say. The delta is always `variant - full`, so a negative
         # number always means the variant is the worse configuration - and that
         # sentence is true whichever direction the variant moves in.
-        if abs(delta_net) < 1.0 and abs(delta_rec) < 1e-9:
+        if bitten == 0:
             # Not "a liability" and not "borderline" - literally no effect.
             # A component that changes nothing to the rupee on any seed is not
             # doing anything, and saying so plainly is the useful report.
             verdict = "NO EFFECT AT ALL - identical on every seed"
         elif agreeing < 0.75:
-            verdict = "NOT CONSISTENT across seeds - do not claim it"
-        elif agreeing < 0.85:
-            direction = "worse" if delta_net < 0 else "better"
-            verdict = (
-                f"BORDERLINE ({worse}/{len(net_deltas)}) - variant is {direction}, weakly"
-            )
-        elif delta_net < 0:
-            verdict = "variant is WORSE: the default configuration earns its place"
+            verdict = f"NOT CONSISTENT on the {bitten} seeds it bit - do not claim it"
         else:
-            verdict = "variant is BETTER - the default is a liability"
-        print(f"  {name:<18} {delta_rec:>+11.1%} {delta_net:>+14,.0f} "
-              f"{worse:>7}/{len(net_deltas):<4}   {verdict}")
+            direction = "WORSE" if delta_net < 0 else "BETTER"
+            tail = (
+                "the default configuration earns its place"
+                if delta_net < 0
+                else "the default is a liability"
+            )
+            if bitten < MIN_BITTEN_FOR_A_VERDICT:
+                # Consistent, but over so few seeds that the ratio is arithmetic
+                # rather than evidence. Say which it is instead of promoting it.
+                verdict = (
+                    f"consistently {direction} but only on {bitten}/"
+                    f"{len(net_deltas)} seeds - THIN EVIDENCE"
+                )
+            elif agreeing < 0.85:
+                verdict = (
+                    f"BORDERLINE ({max(worse, better)}/{bitten} bitten) - "
+                    f"variant is {direction.lower()}, weakly"
+                )
+            else:
+                verdict = f"variant is {direction}: {tail}"
+        print(
+            f"  {name:<18} {delta_rec:>+11.1%} {delta_net:>+14,.0f} "
+            f"{worse:>3}W/{better:<2}B/{tied:<2}T {bitten:>5}   {verdict}"
+        )
 
     floor = report.summary["legacy_fixed"]["recovery_rate"].mean
     ceiling = report.summary[OraclePolicy.name]["recovery_rate"].mean

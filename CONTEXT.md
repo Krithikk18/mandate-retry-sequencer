@@ -83,6 +83,34 @@ which is worth saying out loud because it looks like repetition and is not:
     bank_health.py    pooled across customers on one issuer
     otp_completion.py one customer again, but over an action we control
 
+## When class-specific modelling pays, and how much
+
+The three shapes come with three quantities of evidence, and the headroom
+captured lines up with the evidence rather than with the effort:
+
+    class                floor  ceiling    gap  captured   evidence available
+    1 insufficient funds 32.7%    80.4%  47.7pp    73.5%   ~12 cycles per customer
+    2 bank downtime      93.9%    99.2%   5.3pp    78.7%   every mandate on the issuer
+    5 AFA incomplete     49.5%    92.4%  42.9pp    43.4%   sparse 1A history, no pooling
+
+Measured by value on each class in isolation, 20 seeds. Class 2's percentage
+flatters it - its gap is only 5.3 points wide, so almost nothing was on the
+table. Classes 1 and 5 are the fair comparison: near-identical gaps of 47.7 and
+42.9 points, and the agent captures 73.5% of one and 43.4% of the other.
+
+The reason is evidence, not model quality. Payday is a monthly recurring event
+observed twelve times per customer. Bank health has little per-customer history
+but pools across an entire issuer, so a mandate that never failed still
+inherits a sharp estimate. OTP responsiveness has neither: it is latent, it
+cannot be pooled because whether YOU authenticate says nothing about anyone
+else, and its only evidence exists for the ~3% of mandates above the Sec 8(a)
+ceiling.
+
+State this as a result rather than a shortfall. It is the answer to "should we
+build a model per failure class?" - yes, in proportion to how much per-entity
+history the class generates, and do not expect a good model to close a gap the
+data cannot support.
+
 ## Regulatory constraints (hard, not tunable)
 
 RBI Digital Payments E-mandate Framework, 2026 (RBI/DPSS/2026-27/396,
@@ -166,6 +194,30 @@ transactions); PyDTS, arXiv 2204.05731 (discrete-time competing risks).
 N2. Retry priced as a dual-effect action.
 The opt-out hazard above, quantified in rupees and subtracted before
 deciding. India-specific.
+
+STATUS, measured: the mechanism is right and the ESTIMATOR is what fails, and
+the claim must be made at that resolution. Dropping the term splits 9 seeds
+worse / 11 better across 20 - no consistent effect in either direction, which
+is not the same as "dropping it helps". The economics are not in doubt: a
+Sec 6(c) notice really can destroy a mandate, and the term really does halve
+induced opt-outs (1.6 vs 3.4).
+
+What fails is that agent/churn.py must price every customer at
+ASSUMED_OPTOUT_SENSITIVITY = 0.03, because the true per-customer sensitivity is
+hidden and the generator draws it independently of every public field. Measured
+over 5 seeds: the assumed 0.0300 matches the true book mean 0.0302 almost
+exactly, but the true median is 0.0238, p10/p90 are 0.0057/0.0628, 11.3% of
+customers are under-priced by more than 2x and 32.0% are over-priced by more
+than 2x. Right on average, wrong on nearly half the individuals.
+
+The two errors do not cancel. Over-pricing the placid forgoes one subscription
+payment; under-pricing the twitchy forfeits an entire annual LTV. The largest
+single loss in class 5 is exactly this - see honesty item 5.
+
+So claim N2 as "retries are a dual-effect action, this project puts a rupee
+figure on the second effect and then MEASURES whether pricing it helps", and
+report that on this generator it does not pay for itself. That is a stronger
+and more defensible claim than a number that moves with the population.
 
 N3. Measuring the cost of the 24-hour rule.
 Run the agent twice: once with the real lead time, once with a
@@ -251,7 +303,39 @@ find them anyway.
    funded account as a legacy win and quietly inflated the floor every agent
    is compared against.
 
-5. The bank concentration table is realistic in SHAPE only. Per-issuer
+5. A nudge does not create an opt-out, but it can create a RETRY that does -
+   and that second-order effect produced the single largest loss in class 5.
+   On seed 15, CUST_0254 (responsiveness 0.06, LTV Rs 231,228) is held for all
+   twelve cycles with ZERO notifications when nudging is off. With nudging on,
+   two nudges lift P(clear) from 0.104 to 0.180, which flips the best date from
+   -Rs 952 to +Rs 536 and converts HOLD into RETRY. Seven cycles, seven
+   Sec 6(a) notices, and the customer opts out on the seventh. Net swing
+   -Rs 220,875.
+
+   The out-of-band property held throughout - the nudges themselves sent no
+   notification. The lesson is that the real cost of a nudge is not its
+   goodwill charge (Rs 6,474 across 14 nudges here, trivial) but the
+   PRESENTMENTS IT UNLOCKS, because presentments carry a cancel-capable notice
+   and nudges do not.
+
+   The flip went the wrong way because of the churn estimator, not the OTP one.
+   The agent's completion estimate was 0.125 against a true 0.06 - correct
+   Bayesian behaviour on 41 observed 1As. But churn.py prices every customer at
+   ASSUMED_OPTOUT_SENSITIVITY = 0.03 while this customer's true sensitivity is
+   0.0779, a 2.6x under-pricing - they sit above the p90 of 0.0628. Re-scored
+   with the true value the same decision reads -Rs 3,040 and the agent holds.
+   This is the N2 estimator failure above, showing up where the stakes are
+   highest rather than as an abstraction.
+
+   This is irreducible within the project's own rules rather than a bug to fix:
+   optout_sensitivity is hidden, the agent may not read it, and the generator
+   draws it independently of every public field, so no observable signal
+   supports a better per-customer estimate. What it argues for is a
+   variance-aware churn term - more reluctance to take a marginal
+   positive-value RETRY when the LTV at stake is two orders of magnitude above
+   the amount being collected. Not implemented.
+
+6. The bank concentration table is realistic in SHAPE only. Per-issuer
    UPI Autopay mandate share is not published by NPCI. What is public is
    the broad concentration: a handful of large issuers carry most
    mandates, with a long tail of smaller banks and small finance banks.

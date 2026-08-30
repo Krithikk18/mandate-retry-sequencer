@@ -107,6 +107,22 @@ HOLD_CARRYING_COST_FRACTION: float = 0.15
 # who has stopped paying and eventually stops caring. Per held cycle.
 NATURAL_ATTRITION_PER_CYCLE: float = 0.05
 
+# --- cost of an out-of-band nudge --------------------------------------------
+# A nudge is a message the merchant sends directly ("your payment failed, tap
+# here to authorise it"). It is NOT the RBI pre-debit notification: it consumes
+# no NPCI attempt and creates no Sec 6(c) opt-out opportunity, which is exactly
+# why it is cheaper than presenting. It is not free either - goodwill is
+# finite, and a sequencer that dunned its way to a good number would be selling
+# something the merchant did not agree to spend.
+#
+# ESTIMATE, as a fraction of annual LTV per nudge. It lives here rather than in
+# agent/decision_engine.py for the same reason DEFAULT_PRESENTMENT_TIME does:
+# the EVALUATOR has to charge it, evaluation/ must not import agent/, and a
+# second constant on the evaluation side would be a second knob for one number.
+# agent/decision_engine.py re-exports this name so every existing import site
+# keeps working.
+NUDGE_GOODWILL_COST_FRACTION: float = 0.002
+
 # How many billing cycles an episode may run before the evaluation stops.
 # Twelve matches the horizon annual_ltv is denominated in, so the two sides of
 # the money equation are measured over the same period.

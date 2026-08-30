@@ -53,9 +53,13 @@ from .churn import (
 # the contribution of the project. If the ablation shows NUDGE carrying real
 # weight, that is a signal the numbers are too generous, not a finding.
 NUDGE_CLEAR_LIFT: float = 0.05  # additive bump to P_clear on the target date
-NUDGE_GOODWILL_COST_FRACTION: float = 0.002  # of annual LTV, per nudge
 NUDGE_MIN_P_CLEAR: float = 0.25  # below this a nudge cannot rescue the date
 NUDGE_MAX_P_CLEAR: float = 0.80  # above this the date needs no help
+
+# Re-exported from rules.py, where it moved when the SIMULATOR started charging
+# it: a nudge now has a real effect on the truth, so the evaluator has to price
+# it too, and evaluation/ must not import agent/. One constant, two readers.
+NUDGE_GOODWILL_COST_FRACTION: float = rules.NUDGE_GOODWILL_COST_FRACTION
 
 
 @dataclass(frozen=True)

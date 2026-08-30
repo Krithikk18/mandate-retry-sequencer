@@ -124,6 +124,23 @@ BUFFER_RATIO_MAX: float = 0.40
 # --- behaviour ---------------------------------------------------------------
 OPTOUT_SENSITIVITY_BETA: tuple[float, float] = (1.5, 48.5)  # mean ~0.03
 
+# How reliably a customer completes an authentication challenge. Only bites
+# above the RBI Sec 8(a) Rs 15,000 ceiling, which is roughly 3% of this book -
+# see AMOUNT_TIERS, whose top tier spans 5,000-20,000.
+#
+# BOTH shape parameters are below 1, which is the point: the density diverges
+# at BOTH ends, so the population genuinely contains people who always
+# authenticate and people who essentially never do, rather than a smear of
+# middling reliability nobody recognises. Skewed toward the responsive end
+# (mean ~0.72), because a customer who set up a large recurring mandate has
+# already demonstrated they will authenticate at least once.
+#
+# This is the trait a nudge acts on, so its spread is what decides whether the
+# interventional action has anything to do. A tight distribution near 1 would
+# make the class vanish; a tight one near 0 would make it unrecoverable. The
+# spread is the finding, not a knob to tune the class's size with.
+OTP_RESPONSIVENESS_BETA: tuple[float, float] = (0.9, 0.35)
+
 _SEED_SPACE: int = 2**31 - 1
 
 
@@ -192,6 +209,11 @@ def draw_buffer_ratio(rng: np.random.Generator, n: int) -> np.ndarray:
 
 def draw_optout_sensitivity(rng: np.random.Generator, n: int) -> np.ndarray:
     return rng.beta(*OPTOUT_SENSITIVITY_BETA, size=n)
+
+
+def draw_otp_responsiveness(rng: np.random.Generator, n: int) -> np.ndarray:
+    """Per-customer reliability at completing an AFA challenge."""
+    return rng.beta(*OTP_RESPONSIVENESS_BETA, size=n)
 
 
 def draw_income_shock_start(
@@ -264,6 +286,16 @@ def make_population(
     dead_mandates = draw_mandate_death(rng, n_customers, as_of)
     seeds = rng.integers(0, _SEED_SPACE, size=n_customers)
 
+    # DRAWN LAST, and that ordering is load-bearing rather than tidy. Every
+    # draw above consumes from the same stream, so inserting a new one anywhere
+    # earlier shifts every subsequent draw and silently changes salaries, burn
+    # rates and balance seeds for every customer in every existing dataset -
+    # which is how class 2 flipped a seed-sensitive holding test when bank_id
+    # was added mid-sequence. Appending leaves every prior draw byte-identical,
+    # so the ONLY difference this class makes to an existing seed is the AFA
+    # gate itself. Add future fields here, at the end, for the same reason.
+    otp_responsiveness = draw_otp_responsiveness(rng, n_customers)
+
     width = max(4, len(str(n_customers)))
     return [
         Customer(
@@ -284,6 +316,7 @@ def make_population(
             burn_rate=float(burn_rates[i]),
             buffer_ratio=float(buffer_ratios[i]),
             optout_sensitivity=float(optout[i]),
+            otp_responsiveness=float(otp_responsiveness[i]),
             balance_seed=int(seeds[i]),
         )
         for i in range(n_customers)

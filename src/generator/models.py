@@ -35,6 +35,7 @@ HIDDEN_CUSTOMER_FIELDS: frozenset[str] = frozenset(
         "burn_rate",
         "buffer_ratio",
         "optout_sensitivity",
+        "otp_responsiveness",
         "balance_seed",
     }
 )
@@ -91,6 +92,16 @@ class Customer(BaseModel):
 
     # --- hidden: behaviour (oracle only) ------------------------------------
     optout_sensitivity: float = Field(ge=0.0, le=1.0)
+
+    # How reliably this customer completes an authentication challenge when one
+    # is put in front of them. A trait of the PERSON, not of the attempt, which
+    # is why it lives here rather than on the presentment - and why the agent
+    # can only ever infer it from that person's own 1A history.
+    #
+    # Defaults to 1.0 - always authenticates - so a hand-built fixture that
+    # says nothing about authentication behaves exactly as it did before this
+    # class existed. The generated population always draws it explicitly.
+    otp_responsiveness: float = Field(default=1.0, ge=0.0, le=1.0)
 
     # --- hidden: reproducibility -------------------------------------------
     # Per-customer seed for the balance process. Carried on the record so that

@@ -93,6 +93,19 @@ class PolicyState(BaseModel):
     notifications_sent_this_cycle: int = Field(ge=0)
     cycle_end_date: date
 
+    # Out-of-band nudges already sent in this cycle. Counted SEPARATELY from
+    # notifications and never folded into them: a notification is the issuer
+    # pre-debit notice that carries an RBI Sec 6(c) opt-out, while a nudge is a
+    # message from the merchant that carries no such thing. Merging the two
+    # would price a nudge as if it could cancel the mandate, which is the one
+    # thing it cannot do.
+    #
+    # A policy needs this to know whether asking again is worth anything -
+    # nudges have diminishing returns - so it is part of the observable state
+    # rather than something a policy has to remember. Defaults to 0, so every
+    # PolicyState built before class 5 constructs unchanged.
+    nudges_sent_this_cycle: int = Field(default=0, ge=0)
+
     @property
     def days_since_failure(self) -> int:
         return (self.today - self.failure_event.original_debit_date).days

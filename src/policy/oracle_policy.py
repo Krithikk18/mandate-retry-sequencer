@@ -34,6 +34,7 @@ import pandas as pd
 from datetime import datetime
 
 from generator import rules
+from generator.afa import MAX_USEFUL_NUDGES
 from generator.banks import BankOutageBook
 from generator.models import Customer
 from generator.oracle import first_success_date, would_succeed_at
@@ -46,15 +47,34 @@ class OraclePolicy(Policy):
 
     Given the truth, the optimal play under this cost model is simple:
 
+    * if a nudge would bring the earliest clearing date forward, send one
+      first - see below;
     * if some reachable date clears, present on the earliest such date - one
       presentment, one notification, minimum opt-out exposure;
     * if no date clears, HOLD. Never CANCEL: the mandate is structurally alive,
       the customer never chose to leave, and holding costs nothing while
       cancelling forfeits the whole annual LTV.
 
-    That second branch is where most of the gap over a fixed schedule comes
+    That third branch is where most of the gap over a fixed schedule comes
     from, and it is worth being explicit that it is a consequence of the cost
     model rather than a clever trick.
+
+    **Why the ceiling nudges.** Through class 4 the oracle only ever chose a
+    date, because the truth was fixed and nothing a policy did could move it.
+    Class 5 is not like that: above the RBI Sec 8(a) ceiling a debit clears
+    only once the customer authenticates, and a nudge causally raises the
+    chance they have. An oracle that refused to nudge would be an upper bound
+    over a SMALLER action set than the agent's, so the agent could legitimately
+    beat it - and "the agent never exceeds the ceiling" is one of the load-
+    bearing tests in this project. The ceiling is capped at
+    ``afa.MAX_USEFUL_NUDGES`` for the opposite reason: an oracle allowed
+    unlimited messages would be unattainable, which makes every real policy
+    look worse than it is.
+
+    This is the same failure mode class 2 hit from the other side, where the
+    oracle scheduled into live outages because it used a balance-only lookup.
+    Both times the fix was to make the ceiling answer the question the agent is
+    actually being scored on.
     """
 
     name = "oracle_ceiling"
@@ -133,26 +153,39 @@ class OraclePolicy(Policy):
 
         # Look only from the first date this decision could legally reach.
         earliest = state.earliest_compliant_retry_date
-        if self._outages is not None:
-            # Bank-aware: a date whose balance is fine but whose bank is down
-            # would fail, and a ceiling that schedules into an outage is not a
-            # ceiling. Walk forward to the first date that clears BOTH.
-            target = None
-            day = earliest
-            while day <= state.cycle_end_date:
-                at = datetime.combine(day, rules.DEFAULT_PRESENTMENT_TIME)
-                if would_succeed_at(truth, at, amount, series, self._outages):
-                    target = day
-                    break
-                day += timedelta(days=1)
-        else:
-            target = first_success_date(
+        nudges = state.nudges_sent_this_cycle
+        target = self._first_clearing_date(
+            truth, series, amount, state, earliest, nudges
+        )
+
+        # Would one more nudge do better? One-step lookahead, and it has to
+        # account for the day the nudge costs: deciding to nudge today means
+        # the next decision is tomorrow, so the soonest presentment afterwards
+        # is the day after that. The FIRST nudge is usually free in time
+        # anyway, because the 24-hour notice already rules out presenting
+        # today. Only taken when it strictly improves - an oracle that spends a
+        # day on a mandate that was already fine would not be a ceiling.
+        if truth.requires_otp and nudges < MAX_USEFUL_NUDGES:
+            after_nudge = self._first_clearing_date(
                 truth,
                 series,
                 amount,
-                after=earliest - timedelta(days=1),
-                horizon_days=self.horizon_days,
+                state,
+                earliest + timedelta(days=1),
+                nudges + 1,
             )
+            if after_nudge is not None and (target is None or after_nudge < target):
+                return RetryDecision(
+                    action="NUDGE",
+                    reasoning={
+                        "policy": self.name,
+                        "rule": "authentication is the binding gate; ask for it",
+                        "cheats": True,
+                        "nudges_sent": nudges,
+                        "clears_on_without_nudge": None if target is None else target.isoformat(),
+                        "clears_on_with_nudge": after_nudge.isoformat(),
+                    },
+                )
 
         if target is not None and target <= state.cycle_end_date:
             return RetryDecision(
@@ -177,4 +210,40 @@ class OraclePolicy(Policy):
                 "horizon_days": self.horizon_days,
                 "first_success_date": None if target is None else target.isoformat(),
             },
+        )
+
+    def _first_clearing_date(
+        self,
+        truth: Customer,
+        series,
+        amount: float,
+        state: PolicyState,
+        earliest,
+        nudges: int,
+    ):
+        """Earliest date from ``earliest`` that clears EVERY gate, or None.
+
+        Bank-aware when an outage book is bound: a date whose balance is fine
+        but whose bank is down would fail, and a ceiling that schedules into an
+        outage is not a ceiling.
+        """
+        if earliest > state.cycle_end_date:
+            return None
+        if self._outages is not None:
+            day = earliest
+            while day <= state.cycle_end_date:
+                at = datetime.combine(day, rules.DEFAULT_PRESENTMENT_TIME)
+                if would_succeed_at(
+                    truth, at, amount, series, self._outages, nudges=nudges
+                ):
+                    return day
+                day += timedelta(days=1)
+            return None
+        return first_success_date(
+            truth,
+            series,
+            amount,
+            after=earliest - timedelta(days=1),
+            horizon_days=self.horizon_days,
+            nudges=nudges,
         )

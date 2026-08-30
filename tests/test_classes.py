@@ -99,18 +99,16 @@ def test_the_router_checks_its_own_consistency():
     router._check_registry_is_consistent()
 
 
-def test_four_classes_are_implemented_and_two_are_still_stubs():
-    """The stubs must not be mistaken for models."""
+def test_five_classes_are_implemented_and_one_is_still_a_stub():
+    """The stub must not be mistaken for a model."""
     assert router.implemented_classes() == {
         rules.FAILURE_CLASS_INSUFFICIENT_FUNDS,
         rules.FAILURE_CLASS_EXPIRED_CARD,
         rules.FAILURE_CLASS_OPTED_OUT,
         rules.FAILURE_CLASS_DOWNTIME,
-    }
-    for failure_class in (
         rules.FAILURE_CLASS_AFA_INCOMPLETE,
-        rules.FAILURE_CLASS_AMBIGUOUS,
-    ):
+    }
+    for failure_class in (rules.FAILURE_CLASS_AMBIGUOUS,):
         handler = router.handler_for_class(failure_class)
         assert handler.implemented is False
         assert "NOT IMPLEMENTED" in handler.rationale

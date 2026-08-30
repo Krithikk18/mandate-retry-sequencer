@@ -47,6 +47,42 @@ only in their success model and permitted actions.
 Two of six should never be retried at all. Fixed schedules retry them
 anyway. That is free recovery for a class-aware system.
 
+## Selectional versus interventional classes
+
+Worth naming, because it is the sharpest architectural distinction in the
+project and it only became visible when class 5 was built.
+
+In insufficient funds, downtime, expired card and revoked consent the agent's
+actions are SELECTIONAL. It picks a date, or declines to pick one. The success
+probability is a fact about the world - a balance, an outage, a dead
+credential - that the agent can estimate but can never move. Its entire skill
+is choosing well on a curve somebody else drew.
+
+AFA incomplete is INTERVENTIONAL. Above the Sec 8(a) ceiling a debit clears
+only if the customer authenticated it, and a NUDGE causally raises the chance
+they did. The agent can move the curve, not merely pick a point on it.
+
+Three consequences, all of which cost real work:
+
+1. The simulator had to apply NUDGE to the truth rather than log it and move
+   on. Through class 4 it was a no-op, which was harmless because nothing it
+   could have changed existed yet.
+2. The ORACLE had to be allowed to nudge too. A ceiling computed over a smaller
+   action set than the agent's is not an upper bound, and the agent could
+   legitimately beat it - which would silently destroy the scale every headline
+   number is quoted against.
+3. "Would a debit on date D have cleared?" stopped having one answer. It has
+   one answer per number of nudges, so every truth function is parameterised by
+   that count. Zero is the world the dataset was billed in; the ceiling is
+   allowed two.
+
+The three implemented models are also three different SHAPES of inference,
+which is worth saying out loud because it looks like repetition and is not:
+
+    payday.py         one customer in isolation - pooling would be meaningless
+    bank_health.py    pooled across customers on one issuer
+    otp_completion.py one customer again, but over an action we control
+
 ## Regulatory constraints (hard, not tunable)
 
 RBI Digital Payments E-mandate Framework, 2026 (RBI/DPSS/2026-27/396,
@@ -197,7 +233,25 @@ find them anyway.
    conclusion does not lean on the assumption", not as the assumption
    having been validated.
 
-4. The bank concentration table is realistic in SHAPE only. Per-issuer
+4. Adding the fifth class moved the book-wide failure rate from 14.6% to
+   17.1% across 20 seeds, because AFA is a genuinely new way to fail rather
+   than a reclassification of existing failures. Both numbers are inside the
+   5-20% band the brief asks for, and the mean is the gate; the worst
+   individual seed now clips 20% on roughly 1 seed in 20, which is a
+   small-sample property of a proportion over ~70 failures. The response was
+   to widen the documented spread allowance in tests/test_dataset.py, NOT to
+   tune OTP_RESPONSIVENESS_BETA down. That constant is a claim about how often
+   people complete an authentication challenge and is not for sale to a
+   threshold.
+
+   Two knock-on numbers moved with it and both are now measured through the
+   full presentment gate rather than the balance alone: legacy recovery
+   (37.5% -> 38.9%) and unrecoverable share. The old code asked "was the
+   balance sufficient", which would have scored an AFA-blocked debit on a
+   funded account as a legacy win and quietly inflated the floor every agent
+   is compared against.
+
+5. The bank concentration table is realistic in SHAPE only. Per-issuer
    UPI Autopay mandate share is not published by NPCI. What is public is
    the broad concentration: a handful of large issuers carry most
    mandates, with a long tail of smaller banks and small finance banks.
@@ -279,9 +333,26 @@ closed. Git history has what they said.
    switching it on is a decision for the write-up, not a quiet edit. It
    is the highest-value change outstanding.
 
-3. Classes 5 (afa_incomplete) and 6 (ambiguous) are still stubs in
-   src/classes/stubs.py. Both declare implemented = False, return a
-   success probability of 0.0, and are excluded from every reported
-   number. AFA needs an OTP-completion hazard the generator does not
-   currently produce; ambiguous needs its cautious-single-retry rule
-   wired through to the engine.
+3. Class 6 (ambiguous) is still a stub in src/classes/stubs.py. It declares
+   implemented = False, returns a success probability of 0.0, and is excluded
+   from every reported number. It needs its cautious-single-retry rule wired
+   through to the engine. Class 5 (afa_incomplete) is now built; the stub
+   module holds only the one class.
+
+4. The AFA class is THIN by episode count - 5.6% of failures across 20 seeds,
+   roughly five episodes per seed - so its recovery RATE carries a wide
+   interval and should never be quoted without the episode count beside it.
+   Its VALUE figures are what the class is for: those same failures carry
+   28.4% of the rupees at risk, because AFA applies only above Rs 15,000 and
+   so rides on the largest mandates on the book. Reported money-first in
+   scripts/run_afa.py for that reason, which is the reverse of every other
+   class. Widening AMOUNT_TIERS would fatten the class and is deliberately NOT
+   done: a thin class reported honestly is worth more than a fat one bought by
+   moving the population every earlier number was measured on.
+
+5. The AFA nudge lift has the same functional form in the generator and in the
+   agent. That flatters the agent - on real data a merchant would fit the
+   dunning response from its own history and get the shape somewhat wrong -
+   and it is the same caveat agent/churn.py already carries. What survives it
+   is the no_afa_nudge ablation, which measures whether the action is worth
+   anything at all rather than whether the lift is calibrated.

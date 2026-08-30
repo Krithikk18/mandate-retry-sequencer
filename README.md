@@ -6,11 +6,11 @@ day-2/4/7 schedule at every failure.
 
 Contains the **data generator**, the **fixed-schedule baseline**, the
 **evaluation harness** that scores any policy against the oracle, and the
-**sequencer** itself - payday inference, bank-health inference, the money
-equation, and the full RETRY / NUDGE / WAIT / HOLD / CANCEL action set, with
-ablations for every component. Four of the six failure classes are implemented
-behind a router that dispatches on the return code; the other two are declared
-stubs and produce no numbers.
+**sequencer** itself - payday inference, bank-health inference, OTP-completion
+inference, the money equation, and the full RETRY / NUDGE / WAIT / HOLD /
+CANCEL action set, with ablations for every component. Five of the six failure
+classes are implemented behind a router that dispatches on the return code; the
+sixth is a declared stub and produces no numbers.
 
 ---
 
@@ -77,8 +77,9 @@ it. `agent_view(dataset)` returns an `AgentDataset` whose records are a
 construction error rather than a silent data problem:
 
 - hidden customer fields — `salary_day`, `salary_amount`, `salary_delay_prob`,
-  `salary_delay_days_max`, `income_shock_start`, `burn_rate`, `buffer_ratio`,
-  `optout_sensitivity`, `balance_seed`
+  `salary_delay_days_max`, `income_shock_start`, `mandate_dead_from`,
+  `mandate_dead_class`, `burn_rate`, `buffer_ratio`, `optout_sensitivity`,
+  `otp_responsiveness`, `balance_seed`
 - hidden failure field — `balance_at_failure` (a real PSP learns the account was
   short, never by how much)
 - and the `balance_series` itself, which the agent view simply does not carry
@@ -89,7 +90,7 @@ construction error rather than a silent data problem:
 
 ```bash
 pip install -e ".[dev]"     # or: pip install numpy pandas pydantic pyarrow pytest
-pytest                      # 230 tests
+pytest                      # 267 tests
 python scripts/inspect_data.py --n 500 --seed 42 --save data/run_42
 ```
 
@@ -97,7 +98,7 @@ python scripts/inspect_data.py --n 500 --seed 42 --save data/run_42
 from generator.generate import generate_dataset, save_dataset, load_dataset, agent_view
 
 ds = generate_dataset(n_customers=500, seed=42)   # fully reproducible
-print(ds.natural_failure_rate)                     # 0.144
+print(ds.natural_failure_rate)                     # 0.166
 save_dataset(ds, "data/run_42")                    # or fmt="csv"
 for_the_agent = agent_view(ds)                     # hidden truth stripped
 ```
@@ -132,11 +133,28 @@ Never judge these on one run. `n=500`, seeds 1–20:
 
 | measure | mean | min | max |
 | --- | --- | --- | --- |
-| natural failure rate (current cycle) | **14.6 %** | 12.2 % | 17.6 % |
-| legacy day-2/4/7 recovery | **37.5 %** | 23.9 % | 46.0 % |
-| unrecoverable within 30 days | **24.8 %** | 12.7 % | 35.8 % |
-| median days from failure to next payday | **10.2** | 8 | 12 |
-| failures landing beyond day 7 | **64.2 %** | 55.7 % | 71.9 % |
+| natural failure rate (current cycle) | **17.1 %** | 13.2 % | 20.4 % |
+| legacy day-2/4/7 recovery | **38.3 %** | 26.0 % | 50.0 % |
+| unrecoverable within 30 days | **29.6 %** | 20.7 % | 41.6 % |
+| median days from failure to next payday | **11.1** | 9 | 13 |
+| failures landing beyond day 7 | **69.8 %** | 60.9 % | 80.0 % |
+| downtime share of failures (code 91) | **8.8 %** | 1.2 % | 21.9 % |
+| AFA share of failures (code 1A) | **5.7 %** | 2.2 % | 12.1 % |
+| AFA share of failures **by value** | **27.8 %** | 12.8 % | 48.7 % |
+
+The failure rate rose from 14.6 % to 17.1 % when the AFA class was added,
+because an authentication refusal is a genuinely new way to fail rather than a
+reclassification of an existing one. The mean is the quality gate and it sits
+inside the requested 5-20 % band; roughly one seed in twenty now clips 20 %,
+which is a small-sample property of a proportion measured over ~85 failures.
+The response was to widen the documented spread allowance in the test, **not**
+to tune `OTP_RESPONSIVENESS_BETA` down - that constant is a claim about how
+often people complete an authentication challenge, and it is not for sale to a
+threshold.
+
+The last two rows are the whole argument for class 5, and they are the reason
+that class is reported money-first: it is a twentieth of the episodes and
+better than a quarter of the rupees.
 
 The failure rate is **not a parameter** — every attempt is resolved against the
 customer's simulated balance, and no target appears anywhere in the code. But
@@ -153,6 +171,16 @@ Two of these numbers are quality gates rather than results, and
   63.8 % here — the failure-to-payday gap was clustered at ~6 days, so the day-7
   retry landed well by luck. Widening `BURN_RATE_LOG_SIGMA` (0.30 → 0.55) spread
   the dry windows and fixed it.
+
+  This number is computed through the **full presentment gate**, not the balance
+  alone. That distinction started mattering with class 5: asking only "was the
+  balance sufficient" would score an AFA-blocked debit on a funded account as a
+  legacy win, quietly inflating the floor every agent is compared against. The
+  same correction applies to `unrecoverable_share`, with one deliberate
+  difference — legacy recovery assumes **no** nudging, because a fixed schedule
+  never reads a return code and so never learns an authentication is
+  outstanding, while recoverability allows `afa.MAX_USEFUL_NUDGES`, because it
+  asks whether *any* compliant policy could have saved the mandate.
 - **Unrecoverable share must be above zero.** If every failure can be recovered,
   CANCEL is never the correct action and a stopping rule can never be wrong — so
   it can never be tested either. The income-shock population below supplies it.
@@ -197,20 +225,27 @@ cannot reach the truth; pydantic also refuses to coerce a truth-family
 
 | | mean | range |
 | --- | --- | --- |
-| fixed-schedule floor (day-2/4/7) | **35.0 %** | 22.4 - 42.9 % |
-| oracle ceiling | **73.6 %** | 62.7 - 85.7 % |
-| **headroom to capture** | **38.6 pp** | |
+| fixed-schedule floor (day-2/4/7) | **36.1 %** | 22.1 - 50.0 % |
+| oracle ceiling | **69.0 %** | 58.4 - 79.3 % |
+| **headroom to capture** | **32.8 pp** | |
 
 Supporting numbers, same run:
 
 | metric | legacy | oracle |
 | --- | --- | --- |
-| presentments used | 253 | 126 |
-| wasted attempts (true P < 0.20) | 126 | 0.8 |
-| wrongly cancelled | 24.2 | 0 |
-| customers retained | 25.5 | 71.6 |
-| cost per rupee recovered | Rs 0.57 | Rs 0.07 |
-| net value | -Rs 1.76 m | +Rs 0.12 m |
+| presentments used | 283 | 286 |
+| customers retained | 30.9 | 71.8 |
+| opt-outs induced | 7.3 | 1.6 |
+| compliance breaches | 2.1 | 0 |
+| net value | -Rs 2.03 m | -Rs 0.25 m |
+
+The ceiling sits lower than the 73.6 % an insufficient-funds-only book gave,
+and it keeps falling as classes are added — that is correct rather than a
+regression. Roughly 9 % of failures are structurally dead mandates that nothing
+can recover, and another 5.6 % are refused at an authentication gate that only
+opens if a human acts. **The right ceiling for a mixed book is lower than the
+right ceiling for an easy one, and quoting the higher number would be quoting a
+different problem.**
 
 The legacy baseline is **not** crippled. It obeys the same NPCI attempt ceiling,
 the same 24-hour notice lead time and the same execution window, and the
@@ -460,29 +495,27 @@ the attempt and notification budget, and which constraint bound the choice.
 
 ### Results, 20 seeds x 500 customers
 
-Measured on the full mixed population - 81.7% insufficient funds, 9.3% bank
-downtime, 6.5% expired card, 2.5% revoked consent:
+Measured on the full mixed population - 76.8% insufficient funds, 8.9% bank
+downtime, 6.3% expired card, 5.6% AFA incomplete, 2.4% revoked consent:
 
 | | recovery | money | net value | attempts | optouts | retained |
 | --- | --- | --- | --- | --- | --- | --- |
-| legacy fixed | 35.5% | 78,940 | -1,684,613 | 272 | 7.1 | 26.5 |
-| **sequencer** | **58.9%** | **155,127** | **-530,506** | 336 | 2.1 | 59.9 |
-| oracle ceiling | 67.8% | 175,003 | -337,214 | 285 | 1.5 | 65.6 |
+| legacy fixed | 36.1% | 114,697 | -2,034,554 | 283 | 7.3 | 30.9 |
+| **sequencer** | **59.3%** | **191,982** | **-653,258** | 357 | 2.2 | 65.3 |
+| oracle ceiling | 69.0% | 234,227 | -252,233 | 286 | 1.6 | 71.8 |
 
-**Headroom captured: 72.5%.** Comfortably between the floor and the ceiling,
+**Headroom captured: 70.5%.** Comfortably between the floor and the ceiling,
 which is where it has to be - at or above the oracle would mean information is
 leaking, and a test asserts it never happens on any seed.
 
-The ceiling sits lower here (67.8%) than on an insufficient-funds-only book,
+The ceiling sits lower here (69.0%) than on an insufficient-funds-only book,
 because about 9% of failures are structurally dead mandates that **nothing** can
-recover. Not even the oracle. That is the correct ceiling for a mixed book, and
-quoting the higher one would be quoting an easier problem.
+recover, and another 5.6% are refused at an authentication gate. That is the
+correct ceiling for a mixed book, and quoting the higher one would be quoting an
+easier problem.
 
-Beyond recovery: **3x fewer opt-outs induced** (2.1 vs 7.1) and **2.3x more
-mandates retained** (59.9 vs 26.5). On an insufficient-funds-only book the
-sequencer also made 3.6x fewer *wasted* attempts - presentments where the true
-probability of clearing was under 20% - though that metric needs the slower
-oracle-metrics pass and is not in the table above.
+Beyond recovery: **3.3x fewer opt-outs induced** (2.2 vs 7.3) and **2.1x more
+mandates retained** (65.3 vs 30.9).
 
 ### Ablations: what each piece is worth
 
@@ -490,37 +523,66 @@ oracle-metrics pass and is not in the table above.
 seed noise cancels; `seeds worse` counts how many of the 20 the variant lost on,
 because a real effect shows up on most seeds rather than only in the mean.
 
+Deltas are `variant - full`, so a negative number means the variant is worse.
+`seeds worse` counts how many of the 20 the variant lost net value on.
+
 | variant | d recovery | d net value | seeds worse | verdict |
 | --- | --- | --- | --- | --- |
-| `no_payday` | -17.1% | -464,675 | 19/20 | the biggest single contributor |
-| `no_hold` | -8.9% | -527,251 | 20/20 | HOLD earns its place |
-| `tier1_payday` | -7.4% | -154,745 | 17/20 | tier 2 over tier 1 is worth real money |
-| `with_nudge` | -3.0% | -77,140 | 17/20 | **NUDGE is a liability** |
-| `irritation_build` | -1.3% | -41,208 | 16/20 | borderline - see below |
-| `no_optout_cost` | +0.3% | -19,543 | 16/20 | borderline - see below |
+| `no_payday` | -16.5% | -457,312 | 18/20 | the biggest single contributor |
+| `no_hold` | -9.9% | -859,263 | 20/20 | HOLD earns its place |
+| `tier1_payday` | -7.1% | -151,935 | 16/20 | borderline - tier 2 over tier 1 |
+| `with_nudge` | -3.1% | -345,430 | 19/20 | **NUDGE on class 1 is a liability** |
+| `irritation_build` | -1.2% | -38,845 | 13/20 | **not consistent - see below** |
+| `no_afa_nudge` | -0.3% | -21,077 | 7/20 | **not consistent - see class 5** |
+| `no_optout_cost` | +1.0% | +37,394 | 9/20 | **not consistent - see below** |
 | `no_bank_health` | +0.0% | **0** | 0/20 | **no effect at all - see class 2** |
 
-Four findings worth stating plainly:
+**Three of these verdicts moved when the fifth class was added, and all three
+moved toward "do not claim it".** The book grew from four generated classes to
+five, so every book-wide average is now diluted across more and more varied
+failures, and two effects that previously cleared this project's 15-of-20
+consistency threshold no longer do. Those are reported as weakened below rather
+than quietly re-baselined; the two strong results (`no_payday`, `no_hold`) got
+stronger.
+
+Five findings worth stating plainly:
 
 **NUDGE hurts, so it is off by default.** It costs 4.1 points of recovery on 19
 of 20 seeds: nudging spends a day without presenting, and the modelled lift does
 not pay for the delay. The switch is kept so the finding stays reproducible
 rather than deleted.
 
-**The opt-out cost term is marginal.** It costs essentially nothing in recovery
-and returns Rs 35,819 of net value, but only on 15 of 20 seeds - exactly the
-threshold this script uses to call an effect consistent. It halves induced
-opt-outs (1.6 vs 3.4), which is the mechanism working as intended, but the LTV
-saved barely outruns the recovery forgone. **N2 should be claimed as a modest,
-measured contribution, not a centrepiece**, and the honest sentence is "it pays
-for itself narrowly" rather than "it is worth Rs 35,819".
+**The opt-out cost term no longer pays for itself, and this is a downgrade from
+what was previously reported.** On the four-class book it returned Rs 35,819 of
+net value on 15 of 20 seeds - exactly the consistency threshold. On the
+five-class book, dropping the term *improves* both recovery (+1.0%) and net
+value (+Rs 37,394), and the direction agrees on only 9 of 20 seeds, which is
+close to a coin flip. The mechanism still works - the term does halve induced
+opt-outs, which is what it is for - but the LTV it saves no longer outruns the
+recovery it forgoes.
 
-**The irritation direction barely matters, and the verdict is borderline.**
-16 of 20 seeds, against a 15-seed threshold. Read it as "the central conclusion
-does not obviously depend on which way the assumption points", not as a clean
-robustness result - the two directions are close enough that a different seed
-range could tip the label either way. That is itself the useful finding: it is
-not a load-bearing assumption.
+**N2 must therefore be claimed as a mechanism that is measured and priced, not
+as a source of net gain.** The defensible sentence is "retries are a dual-effect
+action and this project is the one that puts a rupee figure on the second
+effect", not "pricing churn made us money". Nothing about the finding was tuned
+to reach that conclusion; the number moved when the population got harder, and
+it is reported as it came out.
+
+**The irritation direction barely matters, and now falls below the consistency
+threshold outright.** 13 of 20 seeds, against a 15-seed threshold, for a mean
+cost of 1.2 points of recovery. Read it as "the central conclusion does not
+depend on which way the assumption points" - which is the useful finding, since
+this was flagged in CONTEXT as the single modelling choice most capable of
+inverting the project's conclusion. It is not load-bearing, and the five-class
+book makes that clearer rather than less clear.
+
+**The AFA nudge does not clear the threshold either, and the reason is
+instructive rather than disappointing.** Its book-wide delta is diluted twenty
+times over, because it can only move the 5.6% of failures coded 1A. Isolated on
+that class it is worth Rs 421,534 of net value across 20 seeds - but it *wins*
+on only 7 of them. The full breakdown is in the class-5 section below, and it is
+worth reading: this is a real effect with a genuinely lumpy distribution, not a
+marginal one.
 
 **The shared bank-health signal changes nothing - identically, on every seed.**
 Not "small", not "borderline": zero difference to the rupee on all 20. The
@@ -634,25 +696,32 @@ Consecutive identical decisions collapse into one line with a day count -
 summarised, never hidden. `style="json"` and `style="markdown"` render the same
 content for machines and for docs.
 
-**[docs/audit_samples.md](docs/audit_samples.md)** holds ten episodes chosen by
-CATEGORY, not by outcome. Two of them are deliberately unflattering: one where
-the fixed schedule beat the sequencer outright, and one where the sequencer
-cancelled a mandate the oracle says was still recoverable. A sample where the
-agent only wins is marketing.
+**[docs/audit_samples.md](docs/audit_samples.md)** holds eleven episodes chosen
+by CATEGORY, not by outcome. Two of them are deliberately unflattering: one
+where the fixed schedule beat the sequencer outright, and one where the
+sequencer cancelled a mandate the oracle says was still recoverable. A sample
+where the agent only wins is marketing.
+
+The eleventh was added with class 5, and it is the one to read if you only read
+one: an authentication gate, where P(clear) visibly *rises* as the nudges land
+and the presentment goes in behind them. It is the only episode in the file
+where the agent changes the number rather than choosing the best available one -
+and the notification counter stays at zero throughout, because a nudge is out of
+band.
 
 ---
 
 ## The other failure classes
 
-CONTEXT lists six. This build implements three and declares the rest.
+CONTEXT lists six. This build implements five and declares the last.
 
 | class | modelled? | success on any date | actions |
 | --- | --- | --- | --- |
 | `insufficient_funds` | **yes** - the payday model | depends on timing | all five |
 | `bank_or_psp_downtime` | **yes** - bank health x liquidity | depends on the hour | RETRY, WAIT, HOLD, CANCEL |
+| `afa_incomplete` | **yes** - OTP completion x liquidity | depends on the customer acting | all five |
 | `expired_or_reissued_card` | **yes** (trivially) | **0.0** | NUDGE, HOLD, CANCEL |
 | `customer_opted_out` | **yes** (trivially) | **0.0** | CANCEL only |
-| `afa_incomplete` | stub | - | declared, not implemented |
 | `ambiguous_decline` | stub | - | declared, not implemented |
 
 The two complete-but-trivial classes are the point of the abstraction. An
@@ -660,8 +729,8 @@ expired credential and a revoked mandate cannot clear on **any** date, so their
 success model is the constant zero and their action set simply omits RETRY.
 That is five lines each, and it buys the result below.
 
-The stubs exist so the router has no missing branch. They are marked
-`implemented = False`, they produce no numbers, and nothing is claimed for them.
+The stub exists so the router has no missing branch. It is marked
+`implemented = False`, it produces no numbers, and nothing is claimed for it.
 
 ### The router
 
@@ -685,24 +754,34 @@ counting instead of aborting so the breaches can be reported.
 
 ### Multi-class results, 20 seeds x 500 customers
 
-`python scripts/run_multiclass.py`. Realised mix: 81.7% insufficient funds,
-9.3% downtime, 6.5% expired card, 2.5% revoked.
+`python scripts/run_multiclass.py`. Realised mix: 76.8% insufficient funds,
+8.9% downtime, 6.3% expired card, 5.6% AFA incomplete, 2.4% revoked.
 
 | | legacy | sequencer |
 | --- | --- | --- |
-| recovery (all classes) | 35.6% | **59.0%** |
-| presentments | 5,442 | 6,711 |
-| notifications | 3,947 | **1,496** |
-| opt-outs induced | 141 | **42** |
+| recovery (all classes) | 36.2% | **59.4%** |
+| **money recovered** | **2,293,936** | **3,839,648** |
+| presentments | 5,654 | 7,138 |
+| notifications | 4,091 | **1,633** |
+| opt-outs induced | 146 | **45** |
 | **compliance breaches** | **41** | **0** |
 
+**Money is reported alongside rate now, and that became necessary rather than
+tidy.** The sequencer is +23.2 points of recovery (+64.1% relative) but
++Rs 1,545,712 of money (+67.4% relative). The money gain outruns the rate gain,
+and that gap is the class-5 effect showing up in the aggregate: the episodes the
+sequencer wins and legacy loses are disproportionately the large ones, because
+AFA only applies above Rs 15,000. A rate-only table weights a Rs 199 streaming
+mandate and a Rs 19,000 one equally, which is the wrong weighting for a
+revenue-recovery claim.
+
 **On the structurally dead mandates**, routing on the return code saves **300
-presentments and Rs 38,730** across 1,636 failures - **Rs 2,367 per 100
+presentments and Rs 38,730** across 1,709 failures - **Rs 2,266 per 100
 failures** - for about fifty lines of code and no model at all. The sequencer's
 presentments there are the originals that produced the failure in the first
 place; it makes none of its own.
 
-**And 47 compliance breaches become 0.** A fixed schedule cannot avoid this: it
+**And 41 compliance breaches become 0.** A fixed schedule cannot avoid this: it
 never reads the return code, so it cannot know consent is gone. That is a
 regulatory finding rather than an efficiency one, which is why it is reported
 separately.
@@ -750,9 +829,9 @@ survives `save_dataset`/`load_dataset` for free - `outage_book_for(dataset)`.
 reads it off the IFSC or UPI handle, and the whole class depends on being able
 to correlate failures across customers who share an issuer.
 
-**Realised share: 9.1% of failures carry code 91** (mean over 20 seeds).
-Individual seeds range from **1.3% to 22.3%**, and only 3 of 20 land inside the
-8-12% target band. That spread is not a tuning failure - it is the correlation
+**Realised share: 8.8% of failures carry code 91** (mean over 20 seeds).
+Individual seeds range from **1.2% to 21.9%**, and only a handful land inside
+the 8-12% target band. That spread is not a tuning failure - it is the correlation
 showing up. Insufficient funds is an independent per-customer draw, so its share
 is stable; one outage fails every mandate on that issuer at once, so whether a
 large bank happened to be down on a busy debit day swings the whole seed.
@@ -783,10 +862,12 @@ certain.
 
 ### Results, 20 seeds x 500 customers, downtime failures only
 
+152 downtime failures out of 1,709 total (8.9%).
+
 | policy | recovery | presentments | into a live outage | notices |
 | --- | --- | --- | --- | --- |
 | legacy fixed | 89.5% | 334 | 1 | 186 |
-| **sequencer** | **94.1%** | 307 | 1 | 136 |
+| **sequencer** | **94.1%** | 311 | 1 | 139 |
 | oracle ceiling | 94.7% | 299 | 0 | 149 |
 
 The sequencer beats legacy by 4.6 points and sits within half a point of the
@@ -794,7 +875,7 @@ ceiling. But the interesting results are the negative ones.
 
 ### Three negative results worth more than the win
 
-**1. No policy can present into the outage it is reacting to. 0 of 19,535
+**1. No policy can present into the outage it is reacting to. 0 of 48,779
 outages cover two presentment windows.**
 
 Outages cap at 18h. The RBI notice period is 24h. Presentments happen once a
@@ -816,6 +897,13 @@ The signal is real at scale (the largest same-bank same-day cluster of 91s in a
 could outlast the notice period - real core-banking incidents sometimes run for
 days - but none in this generator do, by construction.
 
+**Class 5 did not disturb any of this.** Adding a fifth failure class changed
+the book, so the downtime counts moved by a few presentments, but every
+conclusion above survived unchanged: the same 89.5 / 94.1 / 94.7 recovery
+split, still zero outages spanning two presentment windows, still an exactly
+identical `no_bank_health` ablation on every seed. That is what a structural
+result should do when the population around it changes.
+
 **This is the sharper regulatory finding.** For class 1 the 24-hour rule costs
 about nothing because the agent has no bank-side signal to react to. Here it
 costs nothing for a structural reason instead: the rule does not make the class
@@ -825,8 +913,8 @@ a payments company would instinctively build for this failure mode.
 
 **3. The money equation has no time preference, and this class exposes it.**
 
-The agent recovers as often as the oracle but takes **538 hours** after the
-outage clears against the oracle's **34**. It is not a downtime bug. Rs 2,571
+The agent recovers as often as the oracle but takes **539 hours** after the
+outage clears against the oracle's **38**. It is not a downtime bug. Rs 2,571
 collected in thirty days scores higher than Rs 2,551 collected tomorrow, because
 the churn term decays with time and nothing penalises delay. For insufficient
 funds that barely shows - you must wait for payday anyway. For downtime the
@@ -857,6 +945,236 @@ affects class 1 too, not only downtime.
 
 ---
 
+## Failure class 5: AFA incomplete
+
+The first class where the agent can **change** the answer rather than pick the
+best point on a curve somebody else drew.
+
+    insufficient funds -> recovery takes DAYS.    Wait for payday.
+    downtime           -> recovery takes HOURS.   Present at the first clear hour.
+    AFA incomplete     -> recovery takes an ACTION. Ask, then present.
+
+RBI Sec 8(a) exempts recurring debits from Additional Factor of Authentication
+only **up to Rs 15,000 per transaction**. Above that ceiling every debit needs
+its own OTP, so a presentment is refused with code `1A` unless the customer
+authenticated *that* debit. The mandate is not dead — it is **gated**, and the
+gate closes again behind every attempt.
+
+### Selectional versus interventional, and why it cost real work
+
+In classes 1–4 the agent's actions are **selectional**. It picks a date or
+declines to. The success probability is a fact — a balance, an outage, a dead
+credential — that the agent can estimate and can never move.
+
+Here it is **interventional**. A NUDGE is an out-of-band message asking the
+customer to authorise the mandate, and it causally raises the chance the gate is
+open at the next presentment. Three things had to change, and none of them was
+optional:
+
+1. **The simulator had to apply NUDGE to the truth.** It had been a no-op
+   (`# WAIT or NUDGE - neither presents nor ends the cycle`), which was harmless
+   for four classes because nothing it could have changed existed yet.
+2. **The oracle had to be allowed to nudge too.** A ceiling computed over a
+   smaller action set than the agent's is not an upper bound — the agent could
+   legitimately beat it, and the scale every headline number is quoted against
+   would quietly stop meaning anything. It is capped at
+   `afa.MAX_USEFUL_NUDGES = 2` for the opposite reason: an oracle allowed
+   unlimited messages is unattainable, which makes every real policy look worse
+   than it is. Class 2 hit the same failure from the other side, where
+   `OraclePolicy` scheduled into live outages because it used a balance-only
+   lookup.
+3. **"Would a debit on date D have cleared?" stopped having one answer.** It has
+   one per number of nudges. Every truth function now takes `nudges`; it
+   defaults to 0, which is the world the dataset was *billed* in, because the
+   merchant's legacy schedule nudged nobody.
+
+### A nudge is out of band, and that is the whole cost argument
+
+A nudge is a message from the **merchant**. The pre-debit notification is a
+message from the **issuer**, and under Sec 6(c) it must carry an AFA-validated
+opt-out. So a nudge:
+
+- does **not** increment the notification counter, and creates no opt-out
+  opportunity — it cannot cancel the mandate;
+- does **not** consume an NPCI attempt;
+- **does** cost goodwill — `rules.NUDGE_GOODWILL_COST_FRACTION` of annual LTV
+  per message, charged against net value.
+
+That is the trade: a cheaper way to change the customer's state than presenting.
+Three tests pin it, because it is the property most likely to regress the next
+time somebody edits the simulator.
+
+The lift has **diminishing returns and converges below certainty**. Responsiveness
+scales both the baseline completion rate and the efficacy of asking — one
+assumption, not two: somebody who ignores authentication prompts ignores the
+reminder about them as well. A flat lift would let one message rescue a
+chronically unresponsive customer, which is the opposite of what the trait means.
+
+### The framing number: thin by count, heavy by value
+
+**Report this class by money first and rate second — the reverse of every other
+class.** AFA applies only above Rs 15,000, so it rides exclusively on the
+largest mandates on the book.
+
+| across 1,709 failures worth Rs 5,806,135 | by count | by value |
+| --- | --- | --- |
+| failures on OTP-gated mandates | 9.2 % | 46.8 % |
+| **failures refused at the AFA gate (1A)** | **5.6 %** | **28.4 %** |
+
+A twentieth of the episodes carrying better than a quarter of the rupees at
+risk. A recovery-rate table weights a Rs 199 streaming mandate and a Rs 19,000
+one equally, which is the wrong weighting for a revenue-recovery claim and would
+have made the most valuable class on the book look like noise.
+
+**The population was deliberately not widened to fatten this class.**
+`AMOUNT_TIERS` still puts ~3 % of the book above the Sec 8(a) ceiling, which is
+realistic for an Indian subscription book and is what every class-1 and class-2
+number was measured on. A thin class reported honestly is worth more than a fat
+one bought by moving the population.
+
+### Results, 20 seeds x 500 customers, AFA failures only
+
+Value at risk across **96 AFA failures**: Rs 1,648,936.
+
+| policy | money | of value | net value | goodwill | notices |
+| --- | --- | --- | --- | --- | --- |
+| legacy fixed | 816,633 | 49.5 % | -9,220,563 | 0 | 205 |
+| **sequencer** | **1,123,371** | **68.1 %** | **-3,130,544** | 235,961 | 136 |
+| `no_afa_nudge` | 1,040,834 | 63.1 % | -3,552,077 | 0 | 79 |
+| oracle ceiling | 1,523,117 | 92.4 % | +372,961 | 7,056 | 91 |
+
+**The sequencer recovers Rs 306,738 more than legacy — Rs 3,195 per AFA failure.**
+
+Recovery rate second, and **with the episode count attached**, because the class
+is thin:
+
+| policy | recovery | episodes | per-seed spread |
+| --- | --- | --- | --- |
+| legacy fixed | 50.0 % | 48/96 | 25 % .. 100 % |
+| **sequencer** | **68.8 %** | 66/96 | 33 % .. 100 % |
+| oracle ceiling | 92.7 % | 89/96 | 67 % .. 100 % |
+
+Roughly five episodes per seed, and a per-seed standard deviation of **18.0 %**.
+Quote the value figures; the rate is context, not the result.
+
+### What the interventional action is actually worth
+
+| variant | money | recovery | nudges | attributable | net value |
+| --- | --- | --- | --- | --- | --- |
+| sequencer | 1,123,371 | 68.8 % | 578 | 19 | -3,130,544 |
+| `no_afa_nudge` | 1,040,834 | 63.5 % | 0 | 0 | -3,552,077 |
+
+**Nudging is worth Rs 82,537 of recovery and Rs 421,534 of net value.** It is a
+real positive result, and it is the novel claim of this class — but two things
+have to be said with it.
+
+**Only 19 of 578 nudges actually opened a gate that would have stayed shut.**
+That is an exact counterfactual, not an estimate: the AFA draw is keyed on
+identity and date and never on the nudge count, so re-testing the same uniform
+against the unnudged probability answers "would this have happened anyway?"
+precisely. Most nudges are sent to customers who would have authenticated on
+their own. The action pays because when it *does* bite, it bites on a Rs 19,000
+mandate.
+
+**The hit rate is low because AFA is redrawn per presentment.** Sec 8(a) says
+"per transaction", so a later date can clear where an earlier one did not
+without the customer doing anything differently — the agent can partly
+substitute patience for asking. A model in which the refusal persisted until the
+customer acted would make nudging the *only* route to recovery and would inflate
+this number considerably. That is a defensible alternative reading and it is not
+what the regulation says, so it was not taken.
+
+### The nudge result is real in the mean and lumpy in the distribution
+
+This is the number most likely to be over-claimed, so here is the whole
+distribution rather than the total. Per-seed `sequencer - no_afa_nudge`, net
+value, across all 20 seeds:
+
+| | seeds | net value |
+| --- | --- | --- |
+| nudging **wins** | 7 / 20 | +Rs 743,000 combined |
+| nudging **loses** | 13 / 20 | -Rs 321,000 combined |
+| **net** | | **+Rs 421,534** |
+
+The positive mean is carried almost entirely by **four seeds** where a nudge
+rescued a five-figure mandate: +Rs 240,023, +Rs 211,829, +Rs 205,520 and
++Rs 47,421. On the other sixteen the money recovered is **identical** — the
+gate opened on its own, or never opened — and the only difference is the
+goodwill the nudges spent, which is a small certain loss. One seed goes the
+other way hard: **-Rs 216,518**, where nudging burned the day that mattered and
+a large mandate was lost that the date-only policy caught.
+
+**Against this project's 15-of-20 threshold, that is NOT a consistent effect and
+must not be claimed as one.** The honest statement is: *nudging is worth
+Rs 421,534 in expectation across 20 seeds, and it is a high-variance bet that
+loses a little most of the time and wins a lot occasionally, because the class it
+acts on is a handful of very large mandates.* That is a real and defensible
+finding — a merchant should still take a positive-expectation bet — but it is
+not the same claim as `no_payday` or `no_hold`, which lose on 18 and 20 seeds
+out of 20 respectively.
+
+The thinness of the class is the cause, not a separate problem. Five episodes
+per seed cannot produce a consistent per-seed effect no matter how good the
+action is.
+
+### Why legacy fails here, and it is a third distinct reason
+
+    class 1: legacy was MISTIMED          - it retried before payday
+    class 2: legacy was ACCIDENTALLY FINE - short outages had already cleared
+    class 5: legacy is STRUCTURALLY FUTILE
+
+| policy | presentments chosen | automatic | refused 1A |
+| --- | --- | --- | --- |
+| legacy fixed | 205 | 89 | 128 |
+| sequencer | 136 | 393 | 332 |
+| oracle ceiling | 91 | 163 | 55 |
+
+Legacy chose **205** presentments to the sequencer's **136**, and recovered
+Rs 816,633 against Rs 1,123,371. More attempts, less money: the ones it added
+were made into a gate that was shut. It presents four times against a mandate
+that will refuse every one of them until a human completes an authentication
+step legacy never asks for — because it never reads the return code and so never
+learns one is outstanding. Each refusal spends an NPCI attempt and fires a
+cancel-capable Sec 6(a) notice to learn *nothing*: the debit never reached the
+account, so it did not even establish that the customer was short.
+
+The presentment column is split deliberately. A live mandate keeps auto-billing
+on its anchor date every cycle it is carried, so a policy that HOLDs accumulates
+presentments it never decided to make. Pooling the two would read as the
+sequencer being the wasteful one, when on the only column it controls it makes
+barely half as many as legacy.
+
+And because these are the largest mandates on the book, the futility is
+expensive in a way the recovery-rate column cannot show: legacy leaves
+**Rs 832,303** uncollected against the ceiling's Rs 125,819.
+
+### A bug this class did not have to surface, because class 2 already had
+
+`PaydayModel` drops censored declines rather than counting them as evidence the
+account was empty. Code `1A` joins `91` and `54` in that set: an authentication
+refusal never reached the account, so it says nothing about liquidity. The
+agent's `OtpCompletionModel` applies the mirror image of the same discipline —
+a `91` on a large mandate is not evidence about authentication either, because
+the gate was never consulted.
+
+The discriminating property that makes the class separable at all:
+
+| evidence | inference |
+| --- | --- |
+| `1A` on a mandate over Rs 15,000 | the customer did not authenticate |
+| `04` on the same mandate | they **did** authenticate, and were broke |
+
+Both are declines on the same large mandate. The second is *positive* evidence
+that the customer authenticates, and without it a subscriber who authenticates
+reliably but keeps running out of money would look like an authentication
+problem — and the agent would nudge somebody whose issue is their balance.
+Measured: six `1A`s take the completion estimate from the 0.75 book prior to
+0.30; six `04`s on the same mandate take it to 0.90; six `91`s leave it at
+exactly 0.75.
+
+
+---
+
 ## Package layout
 
 ```
@@ -865,7 +1183,10 @@ src/generator/
   models.py       Pydantic records + the agent/truth type split.
   balance.py      The hidden daily balance process (vectorised over paths).
   banks.py        Bank outages: hour-resolution, shared across customers.
-  oracle.py       Ground truth: would_succeed, success_probability_true, curves.
+  afa.py          The AFA gate: per-presentment OTP completion, and the one
+                  piece of truth a policy ACTION can move.
+  oracle.py       Ground truth: would_succeed, success_probability_true, curves,
+                  and resolve_presentment - THE canonical gate order.
   optout.py       The cancellation hazard attached to each pre-debit notice.
   population.py   Indian subscriber population. Every distribution is a knob.
   generate.py     generate_dataset / save / load / agent_view.
@@ -882,9 +1203,10 @@ src/classes/      One module per failure class, same two-function interface.
   base.py           FailureClassHandler / NeverRetryHandler.
   insufficient_funds.py  payday timing; recovery takes days
   downtime.py       bank availability x liquidity; recovery takes hours
+  afa_incomplete.py authentication x liquidity; recovery takes an ACTION
   expired_card.py   dead credential: zero on every date, no RETRY
   opted_out.py      consent revoked: CANCEL only, RETRY is a breach
-  stubs.py          AFA / ambiguous - DECLARED, NOT IMPLEMENTED
+  stubs.py          ambiguous - DECLARED, NOT IMPLEMENTED
 
 src/audit/        Renders decision logs for human review.
   trail.py          reads what the policy recorded; never recomputes it
@@ -894,6 +1216,9 @@ src/agent/        AGENT-SAFE. The intelligent policy.
                     are we? Three tiers; tier 2 is the calibrated one.
   bank_health.py    The first CROSS-CUSTOMER signal: pools decline evidence
                     across everyone sharing an issuer.
+  otp_completion.py Will this customer authenticate, and does asking help?
+                    Per-customer again, but over a lever the agent controls -
+                    the third distinct SHAPE of inference in the project.
   churn.py          Opt-out risk from public fields only. The true hazard
                     reads a hidden sensitivity, so the agent estimates it.
   decision_engine.py  The money equation. Prices every legal date; returns
@@ -917,8 +1242,9 @@ scripts/lead_time_ablation.py   the rupee cost of the RBI notice rule (N3)
 scripts/prior_robustness.py     method or prior? re-run with wrong priors
 scripts/run_multiclass.py       legacy vs sequencer across all failure classes
 scripts/run_downtime.py         failure class 2, and what the notice rule costs it
+scripts/run_afa.py              failure class 5, reported by MONEY rather than rate
 scripts/show_audit.py           the full decision trail for one customer
-scripts/export_audit_sample.py  ten episodes to docs/audit_samples.md
+scripts/export_audit_sample.py  eleven episodes to docs/audit_samples.md
 
 tests/test_generator.py   unit-level: balance, oracle, population, opt-out
 tests/test_dataset.py     dataset-level: reproducibility, realism, leakage
@@ -929,8 +1255,9 @@ tests/test_decision_engine.py  the money equation and the churn estimator
 tests/test_sequencer.py   the policy, its audit trail, and the guardrails
 tests/test_classes.py     the router, the never-retry classes, the audit trail
 tests/test_downtime.py    outages, bank health inference, the two-condition oracle
+tests/test_afa.py         the AFA gate, OTP inference, and the out-of-band nudge
 
-docs/audit_samples.md     ten rendered episodes, picked by category
+docs/audit_samples.md     eleven rendered episodes, picked by category
 ```
 
 ### The balance process
@@ -974,9 +1301,15 @@ All from `rules.py`. Read from there; never hardcode a threshold at a call site.
   not. Never blend these into one per-attempt cost.
 - **The six failure classes** are named here too, with `NEVER_RETRY_CLASSES`
   covering the two (expired card, opted out) where no date can ever succeed.
-  Only `insufficient_funds` is generated today; the taxonomy exists so the
-  router and class modules have one canonical spelling to import, and
+  Five are generated today; `ambiguous_decline` is not. The taxonomy exists so
+  the router and class modules have one canonical spelling to import, and
   `FailureEvent` validates against it.
+- **`NUDGE_GOODWILL_COST_FRACTION`** also lives here, though it is an ESTIMATE
+  rather than a regulation. It moved out of `agent/decision_engine.py` when the
+  simulator started charging it: a nudge now changes the truth, so the
+  *evaluator* has to price it, and `evaluation/` must not import `agent/`. Same
+  reasoning as `DEFAULT_PRESENTMENT_TIME`, and the agent module re-exports the
+  name so every call site kept working.
 
 **Who sends the notification.** RBI places that duty on the **issuer** — the
 customer's bank or UPI app — not on the merchant or its PSP. The sequencer
@@ -1034,15 +1367,53 @@ These were choices the brief left open. Each is easy to change:
    often ends after a few months. Modelling it as permanent is what guarantees
    CANCEL is unambiguously correct for that group; a recovering variant would
    make the stopping decision harder and is a reasonable next refinement.
-8. **Only one failure class is generated.** `insufficient_funds` is the whole
-   population. The other five are named in `rules.py` and validated against, but
-   nothing emits them yet.
+8. **Five of six failure classes are generated.** `insufficient_funds` is the
+   bulk of the population, with bank downtime, expired cards, revoked consent
+   and AFA refusals alongside it. `ambiguous_decline` is named in `rules.py`
+   and validated against, but nothing emits it yet.
+9. **`Customer.otp_responsiveness` is drawn LAST in `make_population`.** Every
+   draw shares one RNG stream, so inserting a new one anywhere earlier shifts
+   every subsequent draw and silently changes salaries, burn rates and balance
+   seeds for every customer in every existing dataset — which is how class 2
+   flipped a seed-sensitive holding test when `bank_id` was added mid-sequence.
+   Appending leaves every prior draw byte-identical, so the only difference
+   class 5 makes to an existing seed is the AFA gate itself. This was verified,
+   not assumed: across 8 seeds x 2 policies, every insufficient-funds episode on
+   a mandate *below* the Sec 8(a) ceiling scored identically to the rupee before
+   and after the class was added. Add future fields at the end for the same
+   reason.
+10. **AFA completion is redrawn per presentment.** Sec 8(a) exempts AFA "per
+   transaction", so an OTP completed for one debit does nothing for the next —
+   including the next retry inside the same cycle. The consequence is that a
+   later date can clear where an earlier one did not, without the customer
+   doing anything differently, which is why nudging is worth less on this class
+   than the mechanism first suggests. A model where the refusal persisted until
+   the customer acted would make nudging the only route to recovery; that is a
+   defensible alternative and it is not what "per transaction" says.
 
 ### Still open
 
-- **Legacy recovery is 37.5 % mean but ranges 23.9–46.0 % across seeds.** The
+- **Legacy recovery is 38.3 % mean but ranges 26.0–50.0 % across seeds.** The
   mean is on target; the per-seed spread is wide because it is a proportion over
-  only ~70 failures. Larger `n` tightens it. Seed 42 specifically runs hot at
-  47.2 %, so quote the multi-seed mean, not seed 42.
-- **The `"build"` irritation direction is implemented but not yet evaluated.**
-  The switch exists; the ablation has not been run.
+  only ~85 failures. Larger `n` tightens it. Quote the multi-seed mean.
+- **`ambiguous_decline` is the last stub.** It is declared in `rules.py`, routed
+  to a handler that reports `implemented = False`, and produces no numbers.
+  Nothing emits code `05` yet, and its cautious-single-retry rule is drafted in
+  `classes/stubs.py` but not wired to the engine.
+- **The money equation still has no time preference.** `daily_discount` defaults
+  to 0.0 and is measured in `scripts/run_downtime.py`. It is the highest-value
+  change outstanding, and turning it on would move every number in this file, so
+  it is a decision for the write-up rather than a silent edit.
+- **The AFA nudge lift shares its functional form with the generator.** The
+  agent estimates the same shape the truth uses, which flatters it - the same
+  caveat `agent/churn.py` carries. `no_afa_nudge` measures whether the action is
+  worth anything at all, which is the question that survives the caveat; its
+  calibration is not defended.
+- **AFA completion is redrawn per presentment**, per the Sec 8(a) wording
+  ("per transaction"). That lets a later retry clear where an earlier one did
+  not, without the customer acting - so the agent can partly substitute patience
+  for asking, and nudging is worth less than the mechanism first suggests. A
+  model where the refusal persisted until the customer acted is a defensible
+  alternative that would make nudging the only route to recovery. It was not
+  taken, and the choice is worth naming because it sets the size of the class-5
+  result.

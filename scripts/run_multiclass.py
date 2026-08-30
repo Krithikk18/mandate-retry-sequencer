@@ -17,8 +17,17 @@ efficiency finding. Presenting against a mandate whose consent was withdrawn
 under RBI Sec 6(c) is a REGULATORY BREACH, and a count of breaches is a
 different kind of statement from a count of wasted rupees.
 
-Stub classes (downtime, AFA-incomplete, ambiguous) are not generated and no
-numbers are reported for them.
+Five of the six classes are now generated and modelled. Only
+``ambiguous_decline`` remains a stub; it is not generated and no numbers are
+reported for it.
+
+MONEY IS REPORTED ALONGSIDE RATE throughout, and that became necessary with
+class 5 rather than being tidiness. AFA failures occur only above the RBI
+Sec 8(a) Rs 15,000 ceiling, so they are a few per cent of episodes and roughly
+a third of the rupees at risk. A rate-only table weights a Rs 199 streaming
+mandate and a Rs 19,000 one equally, which is the wrong weighting for a
+revenue-recovery claim and would have made the most valuable class on the book
+look like noise.
 """
 
 from __future__ import annotations
@@ -133,8 +142,8 @@ def main() -> None:
 
     print(f"\n{RULE}\nPER CLASS\n{RULE}")
     header = (
-        f"  {'class':<26} {'policy':<14} {'recovery':>9} {'present':>9} "
-        f"{'notices':>9} {'optouts':>8} {'net value':>14}"
+        f"  {'class':<26} {'policy':<14} {'recovery':>9} {'money':>12} "
+        f"{'present':>9} {'notices':>9} {'optouts':>8} {'net value':>14}"
     )
     print(header)
     print("  " + "-" * (len(header) - 2))
@@ -144,13 +153,15 @@ def main() -> None:
             if not t.episodes:
                 continue
             print(f"  {name if policy_name == 'legacy_fixed' else '':<26} "
-                  f"{policy_name:<14} {t.recovery_rate:>9.1%} {t.presentments:>9,} "
+                  f"{policy_name:<14} {t.recovery_rate:>9.1%} {t.money:>12,.0f} "
+                  f"{t.presentments:>9,} "
                   f"{t.notifications:>9,} {t.optouts:>8,} {t.net_value:>14,.0f}")
         print()
 
     print(f"{RULE}\nAGGREGATE\n{RULE}")
-    print(f"  {'policy':<14} {'recovery':>9} {'present':>9} {'notices':>9} "
-          f"{'optouts':>8} {'breaches':>9} {'net value':>14}")
+    print(f"  {'policy':<14} {'recovery':>9} {'money':>12} {'present':>9} "
+          f"{'notices':>9} {'optouts':>8} {'breaches':>9} {'net value':>14}")
+    aggregate: dict[str, Tally] = {}
     for policy_name in policies:
         totals = Tally()
         for t in tallies[policy_name].values():
@@ -159,9 +170,29 @@ def main() -> None:
                 setattr(totals, attr, getattr(totals, attr) + getattr(t, attr))
             totals.money += t.money
             totals.net_value += t.net_value
+        aggregate[policy_name] = totals
         print(f"  {policy_name:<14} {totals.recovery_rate:>9.1%} "
+              f"{totals.money:>12,.0f} "
               f"{totals.presentments:>9,} {totals.notifications:>9,} "
               f"{totals.optouts:>8,} {totals.breaches:>9,} {totals.net_value:>14,.0f}")
+
+    # Does the fifth class move rupees more than it moves rate? It should: it
+    # is a few per cent of episodes carrying the largest mandates on the book.
+    legacy_all, agent_all = aggregate["legacy_fixed"], aggregate["sequencer"]
+    d_rate = agent_all.recovery_rate - legacy_all.recovery_rate
+    d_money = agent_all.money - legacy_all.money
+    money_share = d_money / legacy_all.money if legacy_all.money else 0.0
+    rate_share = d_rate / legacy_all.recovery_rate if legacy_all.recovery_rate else 0.0
+    print()
+    print(f"  sequencer over legacy: {d_rate * 100:+.1f} points of recovery "
+          f"({rate_share:+.1%} relative)")
+    print(f"                         Rs {d_money:+,.0f} recovered "
+          f"({money_share:+.1%} relative)")
+    if money_share > rate_share:
+        print()
+        print("  The money gain outruns the rate gain, and that is the class-5")
+        print("  effect showing up in the aggregate: the episodes the sequencer")
+        print("  wins that legacy loses are disproportionately the large ones.")
 
     # --- the cheap finding ---------------------------------------------------
     dead = rules.NEVER_RETRY_CLASSES

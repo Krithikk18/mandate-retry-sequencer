@@ -28,6 +28,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from agent.sequencer import SequencerPolicy  # noqa: E402
 from audit.trail import render_episode  # noqa: E402
 from evaluation.simulator import EpisodeResult, run_episode  # noqa: E402
+from generator import rules  # noqa: E402
 from generator.generate import generate_dataset  # noqa: E402
 from generator.oracle import first_success_date  # noqa: E402
 from policy import LegacyFixedSchedule  # noqa: E402
@@ -104,6 +105,19 @@ CASES: list[Case] = [
         "Holding is not free. This customer was carried for months and left of "
         "their own accord before the money ever arrived.",
         lambda agent, legacy, salvageable: agent.outcome == "CHURNED",
+    ),
+    Case(
+        "afa_nudge",
+        "An authentication gate, and the one action that opens it",
+        "The only class where the agent can CHANGE the success probability "
+        "rather than pick the best point on a fixed curve. Watch P(clear) rise "
+        "as the nudges land, then the presentment go in behind them - and note "
+        "that no notification was sent to do it, because a nudge is out of "
+        "band and carries no Sec 6(c) opt-out.",
+        lambda agent, legacy, salvageable: agent.failure_class
+        == rules.FAILURE_CLASS_AFA_INCOMPLETE
+        and agent.nudges_sent > 0
+        and agent.outcome == "RECOVERED",
     ),
     Case(
         "nach",

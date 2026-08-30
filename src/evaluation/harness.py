@@ -16,6 +16,13 @@ Some metrics are computable only here, never inside a policy:
     correctly gave up on one whose income had genuinely stopped. Without the
     second number a stopping rule cannot be credited for being right.
 
+    Recoverability is judged with nudging ALLOWED (``afa.MAX_USEFUL_NUDGES``).
+    The question is whether any compliant policy could have saved the mandate,
+    and since class 5 the answer sometimes depends on an action rather than a
+    date: an AFA-gated customer one message away from authenticating is not
+    unrecoverable, and scoring a CANCEL on them as correct would let the agent
+    be credited for giving up on money that was there to take.
+
 Both call into ``generator.oracle``. Nothing in ``policy`` imports it, and a
 test enforces that.
 """
@@ -28,6 +35,7 @@ from datetime import date
 from functools import lru_cache
 from typing import Callable, Iterable, Sequence
 
+from generator.afa import MAX_USEFUL_NUDGES
 from generator.generate import Dataset, generate_dataset
 from generator.models import Customer
 from generator.optout import DEFAULT_IRRITATION_DIRECTION, IrritationDirection
@@ -152,6 +160,7 @@ def evaluate(
                     amount,
                     after=event.original_debit_date,
                     horizon_days=RECOVERY_HORIZON_DAYS,
+                    nudges=MAX_USEFUL_NUDGES,
                 )
                 if salvageable is None:
                     correctly_cancelled += 1

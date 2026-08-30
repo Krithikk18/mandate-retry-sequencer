@@ -4,6 +4,7 @@
               - attempts_used * processing_cost[rail]
               - bounce_charges_paid
               - cycles_held * subscription_amount * HOLD_CARRYING_COST_FRACTION
+              - goodwill_cost_paid
               - ltv_lost
 
 The asymmetry between HOLD and CANCEL is the whole point of having a HOLD
@@ -35,6 +36,14 @@ Holding an unpaying subscriber now costs three things that compound per cycle:
 So HOLD buys time, and time has a price. Whether it is ever worth cancelling
 instead is an empirical question about the size of that price relative to the
 LTV; scripts/sensitivity_holding.py sweeps it.
+
+``goodwill_cost_paid`` is the price of out-of-band nudges. A nudge is the one
+action that CHANGES the customer's state rather than selecting a date, so it
+has to cost something or the objective would buy recovery with unlimited
+dunning. It is charged per nudge at ``rules.NUDGE_GOODWILL_COST_FRACTION`` of
+annual LTV, and it is deliberately separate from the notification count: a
+nudge creates no RBI Sec 6(c) opt-out opportunity, which is exactly why it is
+the cheaper instrument and exactly why it still cannot be free.
 
 Two accounting conventions, both deliberate:
 
@@ -91,6 +100,13 @@ def ltv_retained(customer: AgentCustomer, outcome: str) -> float:
     return customer.annual_ltv if mandate_survives(outcome) else 0.0
 
 
+def goodwill_cost_total(customer: AgentCustomer, nudges_sent: int) -> float:
+    """Goodwill spent on ``nudges_sent`` out-of-band messages."""
+    if nudges_sent < 0:
+        raise ValueError("nudges_sent must be >= 0")
+    return rules.NUDGE_GOODWILL_COST_FRACTION * customer.annual_ltv * nudges_sent
+
+
 def net_value(
     customer: AgentCustomer,
     outcome: str,
@@ -98,13 +114,19 @@ def net_value(
     attempts_used: int,
     bounce_charges_paid: float,
     cycles_held: int = 0,
+    goodwill_cost_paid: float = 0.0,
 ) -> float:
-    """Net rupee value of one episode to the merchant."""
+    """Net rupee value of one episode to the merchant.
+
+    ``goodwill_cost_paid`` defaults to zero so every existing call site keeps
+    the number it had: a policy that never nudges is scored exactly as before.
+    """
     return (
         recovered_amount
         - processing_cost_total(customer.rail, attempts_used)
         - bounce_charges_paid
         - carrying_cost_total(customer.subscription_amount, cycles_held)
+        - goodwill_cost_paid
         - ltv_lost(customer, outcome)
     )
 

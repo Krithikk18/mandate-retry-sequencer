@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from . import rules
+from .afa import MAX_USEFUL_NUDGES
 from .balance import daily_balance
 from .banks import BankOutageBook, outage_book
 from .models import (
@@ -39,7 +40,7 @@ from .models import (
 from .oracle import (
     days_to_next_salary,
     first_success_date,
-    presentment_succeeds,
+    resolve_presentment,
     would_succeed,
 )
 from .population import make_population
@@ -134,12 +135,6 @@ def _cycle_debit_dates(
     return out[-customer.tenure_months:]
 
 
-CLASS_RETURN_CODES: dict[str, str] = {
-    rules.FAILURE_CLASS_EXPIRED_CARD: rules.RETURN_CODE_EXPIRED_CARD,
-    rules.FAILURE_CLASS_OPTED_OUT: rules.RETURN_CODE_MANDATE_REVOKED,
-}
-
-
 def _resolve_attempt(
     customer: Customer,
     day: date,
@@ -152,31 +147,35 @@ def _resolve_attempt(
     presentment rather than by what is convenient to check:
 
     1. A DEAD MANDATE wins first. There is no credential to present, so the
-       balance and the bank are both irrelevant.
+       bank, the authentication and the balance are all irrelevant.
     2. A BANK OUTAGE at the presentment hour comes next. The debit never
-       reaches the account, so whether the money was there is unknowable and
+       reaches the issuer, so whether the money was there is unknowable and
        unknown - the acquirer returns 91, not 04.
-    3. Otherwise the BALANCE decides: 04, or success.
+    3. AFA comes BEFORE the balance. Above the RBI Sec 8(a) Rs 15,000 ceiling
+       the authentication gate sits in front of the account, so an
+       unauthenticated debit is refused without anybody reading the balance and
+       returns 1A whatever that balance was. Checking funds first would emit 04
+       for a decline that never reached the account - the same mistake code 91
+       exposed in class 2, where counting censored declines as balance evidence
+       dragged the payday model around.
+    4. Otherwise the BALANCE decides: 04, or success.
 
     The return code is the only channel the agent gets. Everything behind it -
-    the outage book, the balance series, the dead-mandate fields - is hidden.
+    the outage book, the balance series, the dead-mandate fields, the
+    responsiveness trait - is hidden.
+
+    The order itself lives in ``oracle.resolve_presentment`` so that the world
+    the data is BUILT in and the world a policy is SCORED in cannot drift
+    apart. Historical billing here passes no nudges, because nobody nudged: the
+    merchant's legacy schedule never sent one.
     """
-    if customer.mandate_dead_from is not None and day >= customer.mandate_dead_from:
-        dead_class = customer.mandate_dead_class or rules.FAILURE_CLASS_AMBIGUOUS
-        return False, CLASS_RETURN_CODES[dead_class], dead_class
-
-    if outages is not None and outages.is_down(
-        customer.bank_id, datetime.combine(day, rules.DEFAULT_PRESENTMENT_TIME)
-    ):
-        return False, rules.RETURN_CODE_DOWNTIME, rules.FAILURE_CLASS_DOWNTIME
-
-    cleared = presentment_succeeds(
-        customer, day, customer.subscription_amount, balance_series
-    )
-    return (
-        cleared,
-        None if cleared else rules.RETURN_CODE_INSUFFICIENT_FUNDS,
-        rules.FAILURE_CLASS_INSUFFICIENT_FUNDS,
+    return resolve_presentment(
+        customer,
+        day,
+        customer.subscription_amount,
+        balance_series,
+        outages=outages,
+        nudges=0,
     )
 
 
@@ -219,6 +218,20 @@ def _failure_diagnostics(
         Failures where NO date inside the horizon clears. If this is zero,
         CANCEL is never the correct action and a stopping rule can never be
         wrong - so it can never be tested either.
+
+    Both numbers are answers about PRESENTMENTS, so both go through the full
+    gate rather than the balance alone. That distinction started mattering with
+    class 5: an AFA-blocked debit on a funded account would score as a legacy
+    win if only the balance were consulted, which would quietly inflate the
+    floor every agent is measured against. The two differ in what they assume
+    about nudging, and deliberately:
+
+    * ``legacy_recovery_rate`` assumes NONE. The fixed schedule never reads a
+      return code, so it never learns an authentication is outstanding and
+      never asks for one. That is the whole reason it is futile on this class.
+    * ``unrecoverable_share`` allows ``afa.MAX_USEFUL_NUDGES``, because it asks
+      whether ANY compliant policy could have recovered the mandate, and
+      nudging is available to all of them.
     """
     if not failure_events:
         return {
@@ -247,9 +260,12 @@ def _failure_diagnostics(
             continue
 
         if any(
-            would_succeed(
-                customer, event.original_debit_date + timedelta(days=offset), amount, series
-            )
+            resolve_presentment(
+                customer,
+                event.original_debit_date + timedelta(days=offset),
+                amount,
+                series,
+            )[0]
             for offset in legacy_offsets
         ):
             legacy_wins += 1
@@ -260,6 +276,7 @@ def _failure_diagnostics(
             amount,
             after=event.original_debit_date,
             horizon_days=RECOVERY_HORIZON_DAYS,
+            nudges=MAX_USEFUL_NUDGES,
         ) is None:
             unrecoverable += 1
 
@@ -274,6 +291,47 @@ def _failure_diagnostics(
             np.mean(np.asarray(gaps) > max(legacy_offsets))
         ),
     }
+
+
+def _value_share(
+    customers: list[Customer], failure_events: list[FailureEvent], failure_class: str
+) -> float:
+    """Share of the rupees at risk carried by one failure class."""
+    if not failure_events:
+        return 0.0
+    by_id = {c.customer_id: c for c in customers}
+    total = sum(by_id[e.customer_id].subscription_amount for e in failure_events)
+    if total <= 0:
+        return 0.0
+    hit = sum(
+        by_id[e.customer_id].subscription_amount
+        for e in failure_events
+        if e.failure_class == failure_class
+    )
+    return hit / total
+
+
+def _otp_required_value_share(
+    customers: list[Customer], failure_events: list[FailureEvent]
+) -> float:
+    """Share of rupees at risk on mandates above the Sec 8(a) ceiling.
+
+    Broader than ``afa_value_share``: it counts every failure on an OTP-gated
+    mandate whatever actually blocked it, which is the number that says how
+    much of the book's exposure sits behind an authentication step at all.
+    """
+    if not failure_events:
+        return 0.0
+    by_id = {c.customer_id: c for c in customers}
+    total = sum(by_id[e.customer_id].subscription_amount for e in failure_events)
+    if total <= 0:
+        return 0.0
+    hit = sum(
+        by_id[e.customer_id].subscription_amount
+        for e in failure_events
+        if by_id[e.customer_id].requires_otp
+    )
+    return hit / total
 
 
 def generate_dataset(
@@ -387,6 +445,27 @@ def generate_dataset(
             / len(failure_events)
             if failure_events
             else 0.0
+        ),
+        # Class 5 is thin BY COUNT and heavy BY VALUE, which is the whole
+        # argument for handling it: it rides on the largest mandates on the
+        # book, the only ones above the Sec 8(a) ceiling. Reporting only the
+        # count share would make it look ignorable, so both go in meta and
+        # every report leads with the value one.
+        "afa_share": (
+            sum(
+                1
+                for e in failure_events
+                if e.failure_class == rules.FAILURE_CLASS_AFA_INCOMPLETE
+            )
+            / len(failure_events)
+            if failure_events
+            else 0.0
+        ),
+        "afa_value_share": _value_share(
+            customers, failure_events, rules.FAILURE_CLASS_AFA_INCOMPLETE
+        ),
+        "otp_required_value_share": _otp_required_value_share(
+            customers, failure_events
         ),
         "n_income_shocked": sum(
             c.income_shock_start is not None for c in customers

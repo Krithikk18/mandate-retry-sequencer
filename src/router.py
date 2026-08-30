@@ -20,12 +20,13 @@ from __future__ import annotations
 from generator import rules
 from generator.models import AgentFailureEvent, FailureEvent
 
+from classes.afa_incomplete import AfaIncompleteHandler
 from classes.base import FailureClassHandler
 from classes.downtime import DowntimeHandler
 from classes.expired_card import ExpiredCardHandler
 from classes.insufficient_funds import InsufficientFundsHandler
 from classes.opted_out import OptedOutHandler
-from classes.stubs import AfaIncompleteHandler, AmbiguousHandler
+from classes.stubs import AmbiguousHandler
 
 _HANDLERS: dict[str, FailureClassHandler] = {
     rules.FAILURE_CLASS_INSUFFICIENT_FUNDS: InsufficientFundsHandler(),

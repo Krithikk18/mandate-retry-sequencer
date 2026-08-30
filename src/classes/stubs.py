@@ -1,14 +1,13 @@
 """Classes that are NOT yet implemented, declared so the router has no gaps.
 
-Each of these is a real failure class with a real response, and none of them is
-modelled here. Downtime USED to live here and now has a real model in
-classes/downtime.py - these are what is left. They exist so the taxonomy is complete and the router has no
-missing branch - a stub that says "not implemented" is safer than a KeyError in
-production and far safer than a plausible-looking guess.
+One is left. Downtime used to live here and moved to classes/downtime.py;
+afa_incomplete used to live here and moved to classes/afa_incomplete.py. What
+remains is ``ambiguous_decline``, and it exists so the taxonomy is complete and
+the router has no missing branch - a stub that says "not implemented" is safer
+than a KeyError in production and far safer than a plausible-looking guess.
 
-**None of these produce results. Do not report numbers for them.** Their
-``implemented`` flag is False and the multi-class evaluation excludes them from
-any claim.
+**This produces no results. Do not report numbers for it.** Its ``implemented``
+flag is False and the multi-class evaluation excludes it from any claim.
 """
 
 from __future__ import annotations
@@ -19,25 +18,6 @@ from generator import rules
 from policy.base import Action, PolicyState
 
 from .base import FailureClassHandler
-
-
-class AfaIncompleteHandler(FailureClassHandler):
-    """Above Rs 15,000 and the customer did not complete OTP. NOT IMPLEMENTED.
-
-    Retrying is pointless until the OTP is done, so the action is a NUDGE to
-    complete authentication. Modelling it needs an OTP-completion hazard the
-    generator does not produce.
-    """
-
-    failure_class = rules.FAILURE_CLASS_AFA_INCOMPLETE
-    implemented = False
-    rationale = "NOT IMPLEMENTED - needs an OTP completion model"
-
-    def success_probability(self, state: PolicyState, day: date) -> float:
-        return 0.0
-
-    def allowed_actions(self, state: PolicyState) -> list[Action]:
-        return ["NUDGE", "WAIT", "HOLD", "CANCEL"]
 
 
 class AmbiguousHandler(FailureClassHandler):

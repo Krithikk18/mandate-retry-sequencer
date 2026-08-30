@@ -11,10 +11,23 @@ result honestly is worth more than claiming one that is not there.
     no_payday        tier-2 model replaced with a flat base rate
     no_optout_cost   the churn term dropped from the money equation
     no_hold          HOLD removed from the action set
-    with_nudge       NUDGE switched on (it is off by default - see below)
+    with_nudge       NUDGE on for INSUFFICIENT FUNDS (off by default - see below)
+    no_afa_nudge     NUDGE off for AFA (on by default - the opposite switch)
     tier1_payday     tier 1 (day-of-month frequency) instead of tier 2
     no_bank_health   no cross-customer pooling of bank outage evidence
     irritation_build the opposite irritation direction
+
+``with_nudge`` and ``no_afa_nudge`` are the same action measured on two
+different classes, and they point opposite ways. Nudging an insufficient-funds
+customer asks somebody with no money to find some: it burns a day and loses.
+Nudging an AFA customer asks them to press a button, and presenting before they
+do cannot clear whatever the balance is. Both defaults are set by their own
+arithmetic, which is why they are two switches rather than one.
+
+Note on scale: ``no_afa_nudge`` moves only the ~5% of failures coded 1A, so its
+effect on a book-wide average is diluted by a factor of twenty before it is
+read. Judge it in scripts/run_afa.py, where the class is isolated; it is listed
+here so the ablation table has no missing row.
 
 Legacy and the oracle ceiling are shown alongside as the floor and the roof.
 """
@@ -42,6 +55,7 @@ VARIANTS: dict[str, dict] = {
     "no_optout_cost": {"include_optout_cost": False},
     "no_hold": {"use_hold": False},
     "with_nudge": {"use_nudge": True},
+    "no_afa_nudge": {"use_afa_nudge": False},
     "tier1_payday": {"payday_tier": 1},
     "no_bank_health": {"use_bank_health": False},
     "irritation_build": {"irritation_direction": "build"},
@@ -129,6 +143,13 @@ def main() -> None:
         # Three bands, not two. An effect that shows up on 15 of 20 seeds is
         # not the same claim as one that shows up on all 20, and collapsing
         # them into a single "earns its place" overstates the weaker one.
+        # The verdict is phrased about THE VARIANT, not about "removing" a
+        # component, because not every variant removes one. `with_nudge` ADDS
+        # nudging to class 1 and `irritation_build` swaps an assumption for its
+        # mirror; reading their rows as "removing it hurts" inverts what they
+        # actually say. The delta is always `variant - full`, so a negative
+        # number always means the variant is the worse configuration - and that
+        # sentence is true whichever direction the variant moves in.
         if abs(delta_net) < 1.0 and abs(delta_rec) < 1e-9:
             # Not "a liability" and not "borderline" - literally no effect.
             # A component that changes nothing to the rupee on any seed is not
@@ -137,12 +158,14 @@ def main() -> None:
         elif agreeing < 0.75:
             verdict = "NOT CONSISTENT across seeds - do not claim it"
         elif agreeing < 0.85:
-            direction = "hurts" if delta_net < 0 else "helps"
-            verdict = f"BORDERLINE ({worse}/{len(net_deltas)}) - removing it {direction}, weakly"
+            direction = "worse" if delta_net < 0 else "better"
+            verdict = (
+                f"BORDERLINE ({worse}/{len(net_deltas)}) - variant is {direction}, weakly"
+            )
         elif delta_net < 0:
-            verdict = "removing it hurts: the component earns its place"
+            verdict = "variant is WORSE: the default configuration earns its place"
         else:
-            verdict = "removing it HELPS - the component is a liability"
+            verdict = "variant is BETTER - the default is a liability"
         print(f"  {name:<18} {delta_rec:>+11.1%} {delta_net:>+14,.0f} "
               f"{worse:>7}/{len(net_deltas):<4}   {verdict}")
 

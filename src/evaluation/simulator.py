@@ -25,10 +25,32 @@ window, fails loudly. Silently clamping the date would turn an illegal policy
 into a legal-looking one with a good number attached, which is the single most
 dangerous failure mode an evaluation harness can have.
 
+**NUDGE is the one action that changes the world rather than selecting from
+it.** Every other action picks a date or declines to; the truth underneath is
+fixed and the policy can only estimate it. A nudge is an out-of-band message
+that causally raises the chance the customer completes AFA for the next
+presentment, so the simulator has to apply it to the truth rather than log it
+and move on. Three properties keep it honest, and each is pinned by a test:
+
+* it is NOT a pre-debit notification, so it neither increments the notification
+  counter nor creates an RBI Sec 6(c) opt-out opportunity - that distinction is
+  the entire reason nudging is cheaper than presenting;
+* it consumes no NPCI attempt;
+* it is not free - ``rules.NUDGE_GOODWILL_COST_FRACTION`` of annual LTV comes
+  off net value per nudge, and the lift has diminishing returns that converge
+  below certainty (see ``generator.afa.completion_probability``).
+
+The effect is deliberately CLASS-AGNOSTIC here. A nudge raises OTP-completion
+odds for mandates that need OTP and does nothing for a customer whose problem
+is an empty account or a bank that is down. The simulator never asks which
+failure class it is looking at; the arithmetic in ``generator.afa`` does the
+discriminating, so the policy shape stays a consequence rather than a branch.
+
 Both random draws are keyed on identity, never on a shared stream:
 
 * opt-out    -> (customer_id, notification_index, seed)
 * attrition  -> (customer_id, cycle_index, seed)
+* AFA        -> (balance_seed, presentment_date)   [generator.afa]
 
 Off a shared generator, a policy that made three attempts would shift the
 stream for the next policy and the comparison would measure RNG alignment
@@ -59,7 +81,7 @@ from generator.optout import (
     IrritationDirection,
     draw_optout,
 )
-from generator.oracle import presentment_succeeds
+from generator.oracle import resolve_presentment
 from policy.base import Policy, PolicyState
 
 from . import economics
@@ -128,6 +150,23 @@ class EpisodeResult:
     failure_class: str = rules.FAILURE_CLASS_INSUFFICIENT_FUNDS
     return_code: str = rules.RETURN_CODE_INSUFFICIENT_FUNDS
     original_debit_date: date | None = None
+
+    # Out-of-band nudges sent, what they cost in goodwill, and how many
+    # presentments cleared AFA that would NOT have cleared unnudged. The last
+    # one is an exact counterfactual rather than an estimate: the AFA draw is
+    # keyed on identity and date only, so re-testing the same uniform against
+    # the unnudged probability answers "would this have happened anyway?".
+    nudges_sent: int = 0
+    goodwill_cost_paid: float = 0.0
+    otp_completions_from_nudges: int = 0
+
+    # Presentments refused at the authentication gate. THE class-5 waste
+    # number: an attempt spent, an RBI Sec 6(a) notice fired, a bounce charge
+    # risked on NACH, and nothing learned - the debit never reached the
+    # account, so it did not even establish that the customer was short. A
+    # fixed schedule cannot avoid these, because it never reads the return code
+    # and so never discovers an authentication is outstanding.
+    presentments_refused_for_afa: int = 0
 
     @property
     def recovered(self) -> bool:
@@ -275,6 +314,15 @@ class _Episode:
     # ceiling is a per-cycle rule and the audit trail has to show it that way.
     cycle_attempts: int = 0
     cycle_notifications: int = 0
+    # Nudges are counted PER CYCLE as well as per episode. A nudge asks the
+    # customer to authorise the debit that is coming, and AFA is required per
+    # transaction, so the ask does not carry into next month's debit - the
+    # counter resets with the cycle exactly as the attempt counter does.
+    nudges: int = 0
+    cycle_nudges: int = 0
+    goodwill_cost: float = 0.0
+    otp_completions_from_nudges: int = 0
+    afa_refused: int = 0
     failed_presentments: int = 0
     cycles_held: int = 0
     compliance_breaches: int = 0
@@ -343,17 +391,23 @@ def run_episode(
         cycle_attempts = 1
         ep.cycle_attempts = 1
         ep.cycle_notifications = 0
+        # AFA is required per transaction, so last cycle's authorisation does
+        # not carry. Reset before the auto-presentment resolves, since that
+        # presentment is the new cycle's first and has not been nudged for.
+        ep.cycle_nudges = 0
         if cycle_index == 0:
             ep.failed_presentments += 1
         else:
-            cleared = _record_presentment(ep, customer, cycle_debit, amount, balance_series)
+            cleared, code = _record_presentment(
+                ep, customer, cycle_debit, amount, balance_series
+            )
             ep.log.append(
                 _stamped(ep,
                     cycle_debit,
                     "AUTO",
                     cycle_debit,
                     {"rule": "mandate re-presents on its anchor date"},
-                    "debit cleared" if cleared else "debit failed, code 04",
+                    "debit cleared" if cleared else f"debit failed, code {code}",
                     cycle_index + 1,
                 )
             )
@@ -409,6 +463,7 @@ def run_episode(
     outcome: Outcome = ep.outcome or "HELD"
     bounce = ep.failed_presentments * rules.bounce_charge(customer.rail)
     carrying = economics.carrying_cost_total(amount, ep.cycles_held)
+    goodwill = ep.goodwill_cost
 
     return EpisodeResult(
         customer_id=customer.customer_id,
@@ -430,6 +485,7 @@ def run_episode(
             ep.attempts_used,
             bounce,
             ep.cycles_held,
+            goodwill,
         ),
         days_to_resolution=((ep.resolved_on or first_failure) - first_failure).days,
         decision_log=ep.log,
@@ -438,6 +494,10 @@ def run_episode(
         failure_class=failure_event.failure_class,
         return_code=failure_event.return_code,
         original_debit_date=first_failure,
+        nudges_sent=ep.nudges,
+        goodwill_cost_paid=goodwill,
+        otp_completions_from_nudges=ep.otp_completions_from_nudges,
+        presentments_refused_for_afa=ep.afa_refused,
     )
 
 
@@ -447,21 +507,50 @@ def _record_presentment(
     day: date,
     amount: float,
     balance_series: pd.Series,
-) -> bool:
-    """Present the debit, append it to history, and report whether it cleared."""
-    cleared = presentment_succeeds(customer, day, amount, balance_series)
+) -> tuple[bool, str | None]:
+    """Present the debit, append it to history, report (cleared, return_code).
+
+    The return code matters as much as the boolean now. It is the only channel
+    the agent has, so writing 04 onto a decline that was really an
+    authentication refusal would teach the payday model the account was empty -
+    the same bug class 2 surfaced with code 91, and the reason
+    ``resolve_presentment`` is the single place that decides.
+
+    Nudge attribution is measured here because here is where the truth is
+    consulted. A completion counts as caused by the nudges only if the SAME
+    draw would have failed with none of them: the AFA uniform is keyed on
+    identity and date, never on the nudge count, so the unnudged branch is an
+    exact counterfactual rather than a second sample.
+    """
+    nudges = ep.cycle_nudges
+    cleared, return_code, _ = resolve_presentment(
+        customer, day, amount, balance_series, nudges=nudges
+    )
+    if nudges and customer.requires_otp:
+        unnudged, _, _ = resolve_presentment(
+            customer, day, amount, balance_series, nudges=0
+        )
+        # The gate opened, and it would not have without the nudges. Attributed
+        # whether or not the balance then covered it: the nudge's job is the
+        # authentication, and crediting it only when the account also happened
+        # to be funded would understate what it did.
+        if not unnudged and return_code != rules.RETURN_CODE_AFA_INCOMPLETE:
+            ep.otp_completions_from_nudges += 1
+
     ep.history = ep.history + [
         AgentPaymentHistoryRecord(
             customer_id=customer.customer_id,
             attempt_date=day,
             amount=amount,
             succeeded=cleared,
-            return_code=None if cleared else rules.RETURN_CODE_INSUFFICIENT_FUNDS,
+            return_code=None if cleared else return_code,
         )
     ]
     if not cleared:
         ep.failed_presentments += 1
-    return cleared
+        if return_code == rules.RETURN_CODE_AFA_INCOMPLETE:
+            ep.afa_refused += 1
+    return cleared, return_code
 
 
 def _run_cycle(
@@ -548,14 +637,14 @@ def _run_cycle(
             ep.attempts_used += 1
             cycle_attempts += 1
             ep.cycle_attempts = cycle_attempts
-            cleared = _record_presentment(ep, customer, day, amount, balance_series)
+            cleared, code = _record_presentment(ep, customer, day, amount, balance_series)
             ep.log.append(
                 _stamped(ep,
                     day,
                     "EXECUTE",
                     day,
                     {},
-                    "debit cleared" if cleared else "debit failed, code 04",
+                    "debit cleared" if cleared else f"debit failed, code {code}",
                     cycle_index + 1,
                 )
             )
@@ -571,6 +660,7 @@ def _run_cycle(
                 today=day,
                 attempts_used=cycle_attempts,
                 notifications_sent_this_cycle=cycle_notifications,
+                nudges_sent_this_cycle=ep.cycle_nudges,
                 cycle_end_date=cycle_end,
             )
             decision = policy.decide(state)
@@ -654,7 +744,36 @@ def _run_cycle(
                     )
                 )
                 return False
-            else:  # WAIT or NUDGE - neither presents nor ends the cycle
+            elif decision.action == "NUDGE":
+                # OUT OF BAND, and every part of that matters. A nudge is a
+                # message the merchant sends directly, not the issuer's
+                # pre-debit notice, so it deliberately does NOT touch
+                # ``cycle_notifications`` (no RBI Sec 6(c) opt-out opportunity
+                # is created and no draw is taken against one) and does NOT
+                # touch ``cycle_attempts`` (no NPCI presentment is consumed).
+                # It costs goodwill instead, which is the whole trade: a
+                # cheaper way to change the customer's state than presenting.
+                #
+                # Nothing here asks what failure class this is. The nudge
+                # raises the AFA-completion probability for whoever needs AFA
+                # and is inert for everybody else, which is the arithmetic in
+                # generator.afa doing the discriminating rather than a branch.
+                ep.nudges += 1
+                ep.cycle_nudges += 1
+                ep.goodwill_cost += (
+                    rules.NUDGE_GOODWILL_COST_FRACTION * agent_customer.annual_ltv
+                )
+                ep.log.append(
+                    _stamped(ep,
+                        day,
+                        "NUDGE",
+                        None,
+                        decision.reasoning,
+                        f"out of band, nudge {ep.cycle_nudges} this cycle",
+                        cycle_index + 1,
+                    )
+                )
+            else:  # WAIT - neither presents nor ends the cycle
                 ep.log.append(
                     _stamped(ep,
                         day, decision.action, None, decision.reasoning, "", cycle_index + 1

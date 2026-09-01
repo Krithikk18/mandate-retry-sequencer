@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from _emit import add_json_argument, emit  # noqa: E402
 from generator.generate import generate_dataset  # noqa: E402
 from evaluation.harness import compare  # noqa: E402
 from policy import LegacyFixedSchedule  # noqa: E402
@@ -35,6 +36,7 @@ def main() -> None:
         help="direction of the opt-out irritation model; report both",
     )
     parser.add_argument("--no-oracle-metrics", action="store_true")
+    add_json_argument(parser)
     args = parser.parse_args()
 
     seeds = list(range(1, args.seeds + 1))
@@ -80,6 +82,32 @@ def main() -> None:
     print(f"\n  net value  floor Rs {net_floor.mean:>14,.0f}"
           f"   ceiling Rs {net_ceiling.mean:>14,.0f}")
     print(f"  swing      Rs {net_ceiling.mean - net_floor.mean:>14,.0f} per {args.n} customers")
+
+    # Written from the very summaries the tables above were rendered from, so
+    # the file cannot disagree with the report. See scripts/_emit.py.
+    emit(
+        args.json_path,
+        script="run_baseline.py",
+        seeds=args.seeds,
+        n=args.n,
+        payload={
+            "irritation": args.irritation,
+            "policies": {
+                name: {
+                    metric: {
+                        "mean": summary.mean,
+                        "low": summary.low,
+                        "high": summary.high,
+                    }
+                    for metric, summary in metrics.items()
+                    if summary.values
+                }
+                for name, metrics in report.summary.items()
+            },
+            "headroom_points": (ceiling.mean - floor.mean) * 100,
+        },
+    )
+
     print(f"\nelapsed {time.time() - started:.1f}s")
 
 

@@ -38,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from _emit import add_json_argument, emit  # noqa: E402
 from agent.sequencer import SequencerConfig, SequencerPolicy  # noqa: E402
 from evaluation.simulator import run_episode  # noqa: E402
 from generator import rules  # noqa: E402
@@ -119,6 +120,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=int, default=20)
     parser.add_argument("--n", type=int, default=500)
+    add_json_argument(parser)
     args = parser.parse_args()
 
     seeds = list(range(1, args.seeds + 1))
@@ -194,8 +196,14 @@ def main() -> None:
         f"{afa_failures / book_failures:>15.1%}{afa_value / book_value:>19.1%}"
     )
     print()
-    print("  That gap is the argument for handling this class. A 5-6% slice of")
-    print("  failures carrying roughly a third of the rupees at risk is not a")
+    print(
+        f"  That gap is the argument for handling this class. A "
+        f"{afa_failures / book_failures:.1%} slice of"
+    )
+    print(
+        f"  failures carrying {afa_value / book_value:.1%} of the rupees at risk "
+        "is not a"
+    )
     print("  rounding error, and a recovery-rate table would have hidden it.")
 
     print(f"\n{RULE}\n2. MONEY RECOVERED (lead with this)\n{RULE}")
@@ -311,6 +319,84 @@ def main() -> None:
     print(
         f"  Rs {legacy.value_at_risk - legacy.money:,.0f} left uncollected by legacy "
         f"against Rs {oracle.value_at_risk - oracle.money:,.0f} by the ceiling."
+    )
+
+    # Written from the very tallies the tables above were rendered from, so the
+    # file cannot disagree with the report. See scripts/_emit.py.
+    emit(
+        args.json_path,
+        script="run_afa.py",
+        seeds=args.seeds,
+        n=args.n,
+        payload={
+            "afa_failures": n,
+            "seeds_with_episodes": seeds_with_episodes,
+            "episodes_per_seed": n / max(seeds_with_episodes, 1),
+            "book": {
+                "failures": book_failures,
+                "value": book_value,
+                "otp_gated_count_share": otp_failures / book_failures,
+                "otp_gated_value_share": otp_value / book_value,
+                "afa_count_share": afa_failures / book_failures,
+                "afa_value_share": afa_value / book_value,
+            },
+            "value_at_risk": legacy.value_at_risk,
+            "policies": {
+                name: {
+                    "episodes": tallies[name].episodes,
+                    "recovered": tallies[name].recovered,
+                    "recovery_rate": tallies[name].recovery_rate,
+                    "money": tallies[name].money,
+                    "value_recovered_share": tallies[name].value_recovered_share,
+                    "net_value": tallies[name].net_value,
+                    "goodwill": tallies[name].goodwill,
+                    "notifications": tallies[name].notifications,
+                    "nudges": tallies[name].nudges,
+                    "nudge_completions": tallies[name].nudge_completions,
+                    "chosen_presentments": tallies[name].chosen,
+                    "automatic_presentments": (
+                        tallies[name].presentments - tallies[name].chosen
+                    ),
+                    "presentments": tallies[name].presentments,
+                    "afa_refused": tallies[name].afa_refused,
+                    "cycles_held": tallies[name].cycles_held,
+                    "per_seed_rate_min": min(per_seed_rates[name]),
+                    "per_seed_rate_max": max(per_seed_rates[name]),
+                    "uncollected": (
+                        tallies[name].value_at_risk - tallies[name].money
+                    ),
+                }
+                for name in ARMS
+            },
+            "sequencer_over_legacy_money": gain,
+            "sequencer_over_legacy_per_failure": gain / n,
+            "per_seed_rate_sd_sequencer": statistics.pstdev(
+                per_seed_rates["sequencer"]
+            ),
+            "nudge_delta_money": d_money,
+            "nudge_delta_net_value": d_net,
+            "headroom_by_value": {
+                "floor": legacy.value_recovered_share,
+                "ceiling": oracle.value_recovered_share,
+                "agent": agent.value_recovered_share,
+                "gap_points": (
+                    oracle.value_recovered_share - legacy.value_recovered_share
+                )
+                * 100,
+                "captured": (
+                    (agent.value_recovered_share - legacy.value_recovered_share)
+                    / (oracle.value_recovered_share - legacy.value_recovered_share)
+                    if oracle.value_recovered_share != legacy.value_recovered_share
+                    else None
+                ),
+            },
+            "headroom_by_rate_captured": (
+                (agent.recovery_rate - legacy.recovery_rate)
+                / (oracle.recovery_rate - legacy.recovery_rate)
+                if oracle.recovery_rate != legacy.recovery_rate
+                else None
+            ),
+        },
     )
 
     print(f"\nelapsed {time.time() - started:.0f}s")

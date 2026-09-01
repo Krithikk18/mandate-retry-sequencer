@@ -23,8 +23,8 @@ reported for it.
 
 MONEY IS REPORTED ALONGSIDE RATE throughout, and that became necessary with
 class 5 rather than being tidiness. AFA failures occur only above the RBI
-Sec 8(a) Rs 15,000 ceiling, so they are a few per cent of episodes and roughly
-a third of the rupees at risk. A rate-only table weights a Rs 199 streaming
+Sec 8(a) Rs 15,000 ceiling, so they are a few per cent of episodes and over a
+quarter of the rupees at risk. A rate-only table weights a Rs 199 streaming
 mandate and a Rs 19,000 one equally, which is the wrong weighting for a
 revenue-recovery claim and would have made the most valuable class on the book
 look like noise.
@@ -40,12 +40,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from _emit import add_json_argument, emit  # noqa: E402
 from agent.sequencer import SequencerPolicy  # noqa: E402
 from evaluation.economics import processing_cost_total  # noqa: E402
 from evaluation.simulator import run_episode  # noqa: E402
 from generator import rules  # noqa: E402
 from generator.generate import generate_dataset  # noqa: E402
 from policy import LegacyFixedSchedule  # noqa: E402
+from policy.oracle_policy import OraclePolicy  # noqa: E402
 from router import implemented_classes  # noqa: E402
 
 RULE = "=" * 92
@@ -58,6 +60,10 @@ class Tally:
         self.episodes = 0
         self.recovered = 0
         self.money = 0.0
+        # Rupees these episodes put at risk, so recovery can be reported BY
+        # VALUE as well as by rate. The headroom table in README.md is a
+        # by-value table, and without this it had no producer at all.
+        self.value_at_risk = 0.0
         self.presentments = 0
         self.notifications = 0
         self.optouts = 0
@@ -70,6 +76,7 @@ class Tally:
         self.episodes += 1
         self.recovered += result.outcome == "RECOVERED"
         self.money += result.recovered_amount
+        self.value_at_risk += result.customer.subscription_amount
         self.presentments += result.attempts_used
         self.notifications += result.notifications_sent
         self.optouts += result.outcome == "OPTED_OUT"
@@ -83,6 +90,11 @@ class Tally:
         return self.recovered / self.episodes if self.episodes else 0.0
 
     @property
+    def value_recovered_share(self) -> float:
+        """Money recovered as a share of money at risk. The by-VALUE rate."""
+        return self.money / self.value_at_risk if self.value_at_risk else 0.0
+
+    @property
     def wasted_presentments(self) -> int:
         """Presentments made on a class where no date could ever have cleared."""
         return self.presentments
@@ -92,22 +104,52 @@ class Tally:
         return self.processing + self.bounce
 
 
+def _tally_payload(tally: Tally) -> dict:
+    """One policy's figures, taken off the tally the report printed from."""
+    return {
+        "episodes": tally.episodes,
+        "recovered": tally.recovered,
+        "recovery_rate": tally.recovery_rate,
+        "money": tally.money,
+        "value_at_risk": tally.value_at_risk,
+        "value_recovered_share": tally.value_recovered_share,
+        "presentments": tally.presentments,
+        "notifications": tally.notifications,
+        "optouts": tally.optouts,
+        "breaches": tally.breaches,
+        "net_value": tally.net_value,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=int, default=20)
     parser.add_argument("--n", type=int, default=500)
+    add_json_argument(parser)
     args = parser.parse_args()
 
     seeds = list(range(1, args.seeds + 1))
     started = time.time()
 
-    policies = {"legacy_fixed": LegacyFixedSchedule(), "sequencer": SequencerPolicy()}
+    # The ceiling runs here too, and it is not decoration. README.md quotes a
+    # per-class headroom table - floor, ceiling, gap, share captured, BY VALUE -
+    # and until this arm existed no script produced two of its three rows. A
+    # documented number with no producing run is exactly what verify_docs.py is
+    # for, so the fix is to produce it rather than to stop quoting it.
+    POLICY_NAMES = ("legacy_fixed", "sequencer", "oracle_ceiling")
     tallies: dict[str, dict[str, Tally]] = {
-        name: defaultdict(Tally) for name in policies
+        name: defaultdict(Tally) for name in POLICY_NAMES
     }
 
     for seed in seeds:
         dataset = generate_dataset(n_customers=args.n, seed=seed)
+        # Bound per seed: customer ids repeat, so a ceiling bound to the wrong
+        # dataset reads the wrong person's balance.
+        policies = {
+            "legacy_fixed": LegacyFixedSchedule(),
+            "sequencer": SequencerPolicy(),
+            "oracle_ceiling": OraclePolicy.for_dataset(dataset),
+        }
         for event in dataset.failure_events:
             customer = dataset.customer(event.customer_id)
             episode_args = (
@@ -148,7 +190,7 @@ def main() -> None:
     print(header)
     print("  " + "-" * (len(header) - 2))
     for name in classes:
-        for policy_name in policies:
+        for policy_name in POLICY_NAMES:
             t = tallies[policy_name][name]
             if not t.episodes:
                 continue
@@ -162,7 +204,7 @@ def main() -> None:
     print(f"  {'policy':<14} {'recovery':>9} {'money':>12} {'present':>9} "
           f"{'notices':>9} {'optouts':>8} {'breaches':>9} {'net value':>14}")
     aggregate: dict[str, Tally] = {}
-    for policy_name in policies:
+    for policy_name in POLICY_NAMES:
         totals = Tally()
         for t in tallies[policy_name].values():
             for attr in ("episodes", "recovered", "presentments", "notifications",
@@ -193,6 +235,49 @@ def main() -> None:
         print("  The money gain outruns the rate gain, and that is the class-5")
         print("  effect showing up in the aggregate: the episodes the sequencer")
         print("  wins that legacy loses are disproportionately the large ones.")
+
+    # --- headroom per class, BY VALUE ----------------------------------------
+    # The share of the legacy-to-ceiling gap the sequencer actually takes,
+    # measured in rupees rather than episodes. Reported by value because the
+    # classes differ enormously in mandate size: AFA rides only on mandates
+    # above Rs 15,000, so an episode-weighted table would understate it and
+    # overstate the classes made of Rs 199 subscriptions.
+    headroom: dict[str, dict[str, float]] = {}
+    # The same quantity by RATE. README.md quotes both - the by-value table as
+    # the result and the by-rate figures in one parenthesis beside it, to show
+    # the ordering survives the reweighting - so both need producing.
+    headroom_by_rate: dict[str, float] = {}
+    print(f"\n{RULE}\nHEADROOM CAPTURED PER CLASS, BY VALUE\n{RULE}")
+    print("  Share of the legacy-to-ceiling gap the sequencer takes. Read the")
+    print("  captured column next to the GAP it is a percentage of: capturing")
+    print("  most of a five-point gap is not the same achievement as capturing")
+    print("  most of a fifty-point one.\n")
+    print(f"  {'class':<26} {'floor':>8} {'ceiling':>9} {'gap':>8} {'captured':>10}")
+    print("  " + "-" * 64)
+    for name in classes:
+        legacy_t = tallies["legacy_fixed"][name]
+        agent_t = tallies["sequencer"][name]
+        oracle_t = tallies["oracle_ceiling"][name]
+        floor = legacy_t.value_recovered_share
+        ceiling = oracle_t.value_recovered_share
+        if ceiling <= floor:
+            # No gap to capture - the never-retry classes recover nothing under
+            # any policy, and a share of zero is not a result.
+            continue
+        captured = (agent_t.value_recovered_share - floor) / (ceiling - floor)
+        headroom[name] = {
+            "floor": floor,
+            "ceiling": ceiling,
+            "agent": agent_t.value_recovered_share,
+            "gap_points": (ceiling - floor) * 100,
+            "captured": captured,
+        }
+        print(f"  {name:<26} {floor:>8.1%} {ceiling:>9.1%} "
+              f"{(ceiling - floor) * 100:>7.1f}p {captured:>10.1%}")
+        if oracle_t.recovery_rate > legacy_t.recovery_rate:
+            headroom_by_rate[name] = (
+                agent_t.recovery_rate - legacy_t.recovery_rate
+            ) / (oracle_t.recovery_rate - legacy_t.recovery_rate)
 
     # --- the cheap finding ---------------------------------------------------
     dead = rules.NEVER_RETRY_CLASSES
@@ -231,12 +316,68 @@ def main() -> None:
     print(f"\n{RULE}\nREGULATORY: PRESENTMENTS AGAINST REVOKED MANDATES\n{RULE}")
     print("  Consent withdrawn under RBI Sec 6(c). Presenting again is not")
     print("  inefficient, it is a breach. Reported separately for that reason.\n")
-    for policy_name in policies:
+    for policy_name in POLICY_NAMES:
         t = tallies[policy_name][rules.FAILURE_CLASS_OPTED_OUT]
         print(f"    {policy_name:<14} {t.breaches:>5,} breaches "
               f"across {t.episodes:,} revoked mandates")
     print("\n  A fixed schedule cannot avoid this: it never reads the return")
     print("  code, so it cannot know consent is gone.")
+
+    # Written from the very tallies the tables above were rendered from, so the
+    # file cannot disagree with the report. See scripts/_emit.py.
+    emit(
+        args.json_path,
+        script="run_multiclass.py",
+        seeds=args.seeds,
+        n=args.n,
+        payload={
+            "total_failures": total_failures,
+            "failure_mix": {
+                name: tallies["legacy_fixed"][name].episodes / total_failures
+                for name in classes
+            },
+            "failure_counts": {
+                name: tallies["legacy_fixed"][name].episodes for name in classes
+            },
+            "per_class": {
+                name: {
+                    policy_name: _tally_payload(tallies[policy_name][name])
+                    for policy_name in POLICY_NAMES
+                }
+                for name in classes
+            },
+            "aggregate": {
+                policy_name: _tally_payload(aggregate[policy_name])
+                for policy_name in POLICY_NAMES
+            },
+            "headroom_by_value": headroom,
+            "headroom_by_rate": headroom_by_rate,
+            "delta": {
+                "recovery_points": d_rate * 100,
+                "recovery_relative": rate_share,
+                "money": d_money,
+                "money_relative": money_share,
+            },
+            "dead_mandates": {
+                "legacy_presentments": legacy_dead.presentments,
+                "sequencer_presentments": agent_dead.presentments,
+                "legacy_notifications": legacy_dead.notifications,
+                "sequencer_notifications": agent_dead.notifications,
+                "legacy_wasted_cost": legacy_dead.wasted_cost,
+                "sequencer_wasted_cost": agent_dead.wasted_cost,
+                "saved_presentments": saved,
+                "saved_cost": saved_cost,
+                "saved_cost_per_hundred_failures": per_hundred,
+            },
+            "breaches": {
+                policy_name: tallies[policy_name][
+                    rules.FAILURE_CLASS_OPTED_OUT
+                ].breaches
+                for policy_name in POLICY_NAMES
+            },
+        },
+    )
+
     print(f"\nelapsed {time.time() - started:.0f}s")
 
 

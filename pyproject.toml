@@ -23,4 +23,14 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = "-q"
+# `slow` is deselected by default so the ordinary run stays fast. The only
+# thing marked slow is tests/test_docs.py, which re-runs every experiment at
+# 20 seeds to check that the numbers written in README.md and CONTEXT.md still
+# reproduce - a release gate rather than an inner-loop test.
+#   pytest              the 267 fast tests
+#   pytest -m slow      the documented-numbers check (~10 min)
+#   pytest -m ""        everything
+addopts = "-q -m 'not slow'"
+markers = [
+    "slow: re-runs the full experiment suite; deselected unless asked for",
+]

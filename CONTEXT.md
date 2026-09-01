@@ -91,12 +91,12 @@ captured lines up with the evidence rather than with the effort:
     class                floor  ceiling    gap  captured   evidence available
     1 insufficient funds 32.7%    80.4%  47.7pp    73.5%   ~12 cycles per customer
     2 bank downtime      93.9%    99.2%   5.3pp    78.7%   every mandate on the issuer
-    5 AFA incomplete     49.5%    92.4%  42.9pp    43.4%   sparse 1A history, no pooling
+    5 AFA incomplete     49.5%    92.4%  42.8pp    43.4%   sparse 1A history, no pooling
 
 Measured by value on each class in isolation, 20 seeds. Class 2's percentage
 flatters it - its gap is only 5.3 points wide, so almost nothing was on the
 table. Classes 1 and 5 are the fair comparison: near-identical gaps of 47.7 and
-42.9 points, and the agent captures 73.5% of one and 43.4% of the other.
+42.8 points, and the agent captures 73.5% of one and 43.4% of the other.
 
 The reason is evidence, not model quality. Payday is a monthly recurring event
 observed twelve times per customer. Bank health has little per-customer history
@@ -279,11 +279,13 @@ find them anyway.
    conclusion, it is a switch rather than a constant
    (IrritationDirection in generator/optout.py, threaded through every
    function there) and every headline number is reported under both
-   directions via the irritation_build ablation. The gap is small:
-   -1.3% recovery on 16 of 20 seeds, against the 15-seed threshold this
-   project uses to call an effect consistent. Read that as "the
-   conclusion does not lean on the assumption", not as the assumption
-   having been validated.
+   directions via the irritation_build ablation. The gap is small and, on
+   the five-class book, no longer consistent: -1.2% recovery on 13 of 20
+   seeds, BELOW the 15-seed threshold this project uses to call an effect
+   consistent. Read that as "the conclusion does not lean on the
+   assumption", not as the assumption having been validated. It was 16 of
+   20 on the four-class book; adding class 5 diluted it, exactly as it
+   diluted no_optout_cost and no_afa_nudge.
 
 4. Adding the fifth class moved the book-wide failure rate from 14.6% to
    17.1% across 20 seeds, because AFA is a genuinely new way to fail rather
@@ -298,7 +300,7 @@ find them anyway.
 
    Two knock-on numbers moved with it and both are now measured through the
    full presentment gate rather than the balance alone: legacy recovery
-   (37.5% -> 38.9%) and unrecoverable share. The old code asked "was the
+   (37.5% -> 38.3%) and unrecoverable share. The old code asked "was the
    balance sufficient", which would have scored an AFA-blocked debit on a
    funded account as a legacy win and quietly inflated the floor every agent
    is compared against.
@@ -335,7 +337,45 @@ find them anyway.
    positive-value RETRY when the LTV at stake is two orders of magnitude above
    the amount being collected. Not implemented.
 
-6. The bank concentration table is realistic in SHAPE only. Per-issuer
+6. A stateful policy shared across seeds contaminated every ablation, and
+   the numbers did not move. Both halves matter.
+
+   scripts/run_ablations.py built ONE SequencerPolicy per variant and ran it
+   over all twenty seeds. That policy carries a BankHealthModel and an
+   _ingested set keyed on customer id - and customer ids repeat across seeds,
+   denoting a different person on a different issuer each time, while
+   outage_book is keyed on the seed so every dataset has its own outage
+   timeline. Measured: 71% of the 1,709 failure episodes never contributed
+   their bank evidence at all, rising to 99% by seed 20, and 89% of repeated
+   customer ids sit on a different issuer than their first sighting.
+
+   Re-running with per-seed binding changed NOTHING - every variant's delta,
+   W/B/T split and verdict identical to the rupee, and the whole stdout
+   byte-identical. The reason is the class-2 structural result: the bank term
+   is applied only to downtime-coded failures, and no_bank_health already
+   showed that replacing the entire model with a flat constant changes nothing
+   on 20 of 20 seeds. A term that cannot move a decision cannot move one when
+   it is corrupted either. The contamination was real; its only channel was
+   already measured to be inert.
+
+   Do not read that as "the bug did not matter". Read it as "the bug could
+   only act through a channel this generator has already proved inert, and
+   that was luck rather than design". If outages outlasted the notice period
+   the same defect would have silently rewritten every ablation verdict, and
+   nothing would have caught it: a contaminated run is perfectly reproducible,
+   so scripts/verify_docs.py certified those numbers 185/185.
+
+   What now prevents recurrence is structural, not vigilance:
+   SequencerPolicy.for_dataset mirrors OraclePolicy.for_dataset,
+   SequencerPolicy.decide RAISES on an episode from a book it was not bound
+   to, harness.compare refuses a shared instance of any policy declaring
+   requires_per_seed_binding across more than one seed, and
+   tests/test_policy_binding.py fails on the pre-fix code. The audit found
+   four more instances of the same shape - prior_robustness.py,
+   lead_time_ablation.py, export_audit_sample.py and one inside test_afa.py -
+   none of which anybody had noticed.
+
+7. The bank concentration table is realistic in SHAPE only. Per-issuer
    UPI Autopay mandate share is not published by NPCI. What is public is
    the broad concentration: a handful of large issuers carry most
    mandates, with a long tail of smaller banks and small finance banks.
@@ -377,6 +417,13 @@ the classes covered for barely more than the effort of one.
 
 - Every claim must have a number
 - Every number must come from a reproducible run
+- ENFORCED, not merely stated. `scripts/verify_docs.py` maps every number in
+  README.md and this file to the script and field that produces it, re-runs
+  those scripts at 20 seeds, and fails with a file/line/expected/actual diff
+  on any mismatch. Run it before any release; `pytest -m slow` runs it too.
+  It was written because this rule had gone unenforced: adding class 5 moved
+  the population under figures measured during classes 1 and 2, and its first
+  run found 26 documented numbers that no longer reproduced.
 - Fixed seeds everywhere
 - Never report a single run; report mean and spread across 20 seeds
 - The baseline obeys the same regulatory constraints as the agent.
@@ -396,9 +443,10 @@ The three issues that stood here through class 1 - baseline recovering
 closed. Git history has what they said.
 
 1. Downtime failure share is volatile by nature, and that is the class
-   behaving correctly rather than a tuning failure. Mean over 20 seeds is
-   9.1% of failures carrying code 91, but individual seeds run from 1.3%
-   to 22.3% and only 3 of 20 land inside the 8-12% target band.
+   behaving correctly rather than a tuning failure. The mean of the
+   per-seed shares is 8.8% of failures carrying code 91 (the pooled ratio
+   is 8.9%), but individual seeds run from 1.2% to 21.9% and only 4 of 20
+   land inside the 8-12% target band.
    Insufficient funds is an independent per-customer draw, so its share
    is stable; one outage fails every mandate on that issuer at once, so a
    large bank down on a busy debit day swings a whole seed. Pinned as a
@@ -409,10 +457,12 @@ closed. Git history has what they said.
 2. The money equation has no time preference. Nothing penalises delay, so
    Rs 2,571 collected in thirty days outscores Rs 2,551 collected
    tomorrow. On the downtime class the agent recovers as often as the
-   oracle but resolves 538 hours after the outage clears, against the
-   oracle's 34. DecisionEngine.daily_discount prices this and defaults to
+   oracle but resolves 539 hours after the outage clears, against the
+   oracle's 37. DecisionEngine.daily_discount prices this and defaults to
    0.0. Measured on downtime, 1%/day roughly halves the mean post-clear
-   delay (23.2 -> 10.7 days) at no cost in recovery (96.1% either way).
+   delay (22.5 -> 10.8 days) for 0.7 points of recovery (94.1% against
+   93.4%, and back to 94.1% at 3%/day - flat to within a point rather
+   than untouched).
    It is left off so no class-1 number already reported changes silently;
    switching it on is a decision for the write-up, not a quiet edit. It
    is the highest-value change outstanding.
@@ -423,7 +473,8 @@ closed. Git history has what they said.
    through to the engine. Class 5 (afa_incomplete) is now built; the stub
    module holds only the one class.
 
-4. The AFA class is THIN by episode count - 5.6% of failures across 20 seeds,
+4. The AFA class is THIN by episode count - 5.6% of failures pooled across
+   20 seeds (5.7% as a mean of the per-seed shares),
    roughly five episodes per seed - so its recovery RATE carries a wide
    interval and should never be quoted without the episode count beside it.
    Its VALUE figures are what the class is for: those same failures carry

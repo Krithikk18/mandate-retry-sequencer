@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 *.egg-info/
 scratch_span.py
+.verify_cache/

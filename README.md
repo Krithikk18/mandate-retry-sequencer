@@ -21,8 +21,8 @@ marked as such wherever they appear.
 ## Measured money recovered
 
 `python scripts/run_multiclass.py` — 20 seeds x 500 customers. Realised failure
-mix: 76.8% insufficient funds, 8.9% downtime, 6.3% expired card, 5.6% AFA
-incomplete, 2.4% revoked consent.
+mix, pooled over all 1,709 failures: 76.8% insufficient funds, 8.9% downtime,
+6.3% expired card, 5.6% AFA incomplete, 2.4% revoked consent.
 
 | | legacy fixed schedule | sequencer |
 | --- | --- | --- |
@@ -133,7 +133,7 @@ sequencer actually takes, measured **by value** on each class in isolation:
 | class | legacy | oracle | gap | captured | inference shape | evidence available |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 insufficient funds | 32.7% | 80.4% | 47.7 pp | **73.5%** | one customer, alone | ~12 cycles of attempt history |
-| 5 AFA incomplete | 49.5% | 92.4% | 42.9 pp | **43.4%** | one customer, alone | a handful of sparse `1A` codes |
+| 5 AFA incomplete | 49.5% | 92.4% | 42.8 pp | **43.4%** | one customer, alone | a handful of sparse `1A` codes |
 | 2 bank downtime | 93.9% | 99.2% | 5.3 pp | 78.7% | pooled across an issuer | every mandate on that bank |
 
 Classes 1 and 5 have near-identical gaps and the agent captures 73.5% of one
@@ -220,18 +220,78 @@ construction error rather than a silent data problem:
 
 ```bash
 pip install -e ".[dev]"     # or: pip install numpy pandas pydantic pyarrow pytest
-pytest                      # 267 tests
+pytest                      # 275 tests
 python scripts/inspect_data.py --n 500 --seed 42 --save data/run_42
+python scripts/verify_docs.py   # every number in this file still reproduces
 ```
 
 ```python
 from generator.generate import generate_dataset, save_dataset, load_dataset, agent_view
 
 ds = generate_dataset(n_customers=500, seed=42)   # fully reproducible
-print(ds.natural_failure_rate)                     # 0.166
+print(ds.natural_failure_rate)                     # 0.16
 save_dataset(ds, "data/run_42")                    # or fmt="csv"
 for_the_agent = agent_view(ds)                     # hidden truth stripped
 ```
+
+### Run this before any release
+
+```bash
+python scripts/verify_docs.py            # ~10 min cold, seconds when cached
+python scripts/verify_docs.py --list     # the registry, without running anything
+python scripts/verify_docs.py --only afa # one producer
+pytest -m slow                           # the same check, wired to pytest
+```
+
+`scripts/verify_docs.py` re-runs every experiment at 20 seeds x 500 customers and
+checks each of the **185 numbers written in this file and in CONTEXT.md** against
+what the producing run actually returns. It exists because the project's own rule
+— *every number must come from a reproducible run* — had nothing enforcing it.
+Adding the fifth failure class changed the population underneath figures measured
+during classes 1 and 2, and two of those were caught only because somebody
+happened to be editing the paragraph beside them.
+
+It is built in three pieces. A **registry** maps each documented claim to the
+script and field that produces it. A **runner** executes those scripts once each
+(`--json`, written straight off the tallies their tables are printed from, so the
+file cannot disagree with the report) and caches the result against a hash of
+`src/` plus that script. A **comparator** reports every mismatch as *file, line,
+claim, documented value, measured value, delta* — a diff to act on rather than a
+pass/fail:
+
+```
+MISMATCH  README.md:1119   [class2.discount.0.recovery]
+    claim     | 0.00 (as specified) | 96.1% | 23.2 |
+    producer  downtime -> discount_sweep.0.0.recovery_rate
+    documents 96.1 %
+    measured  94.08 %   (delta -2.021, tolerance +-0.05)
+```
+
+Tolerances are half the last digit the document prints, so rounding never raises a
+false alarm and a real move never hides inside one. Adding a claim is one row in
+`CLAIMS`; if the field does not exist yet, add it to the producing script's
+`--json` payload.
+
+**When it first ran it found 26 of 180 claims no longer reproduced**, all of them
+pre-existing: the class-2 time-preference table and CONTEXT's copy of it were
+still the four-class figures, CONTEXT's downtime share and irritation-ablation
+verdict predated class 5, and the per-class headroom table had **no producing
+script at all** until `run_multiclass.py` gained its ceiling arm. A later pass
+added the N3 notice-cost table and the prior-robustness table, both of which
+were stale for the same reason and neither of which had been pinned. Every one
+is now corrected against a measured run and pinned by a registry row.
+
+**What this check cannot do, and it is worth being blunt about it.** It compares
+a documented number against what the code produces *today*. It cannot tell you
+the code is producing the number for the right reason. A run that is
+systematically wrong but deterministic passes perfectly — and one was: every
+ablation figure below was, for a while, computed by a policy that carried one
+bank-health model across all twenty seeds
+([the binding defect](#a-stateful-policy-shared-across-seeds)). `verify_docs`
+certified those numbers 185/185, correctly, because they did reproduce.
+Reproducibility is not correctness. The defences against *that* class of error
+are invariants in the code and tests that fail on the broken version, not a
+checker downstream of both.
 
 ---
 
@@ -241,9 +301,15 @@ Anchored on `as_of` (default `2026-08-01`), the moment the retry decision is
 being made:
 
 ```
-as_of - 365d ......................... as_of ............ as_of + 60d
-|<-------- observed history -------->|  now  |<-- oracle horizon -->|
+as_of - 365d ......................... as_of ................ as_of + 400d
+|<-------- observed history -------->|  now  |<---- oracle horizon ---->|
 ```
+
+**765 days of daily balance in total** per customer: 365 of observed history
+plus a 400-day oracle horizon. The horizon is long because the oracle has to be
+able to score a retry date on the *twelfth* cycle of a held mandate, not just
+the first — `MAX_EPISODE_CYCLES` is 12, so a policy that holds all year runs off
+the end of a short window and the truth stops existing underneath it.
 
 - **`customers`** — 500 subscribers with public fields and hidden generative
   parameters.
@@ -254,8 +320,8 @@ as_of - 365d ......................... as_of ............ as_of + 60d
   its original attempt: what happens next is the agent's job.
 - **`failure_events`** — the customers whose current-cycle debit actually
   bounced. Nothing is forced; the rate is whatever the balance process produces.
-- **`balance_series`** — the hidden daily truth, running 60 days past `as_of` so
-  the oracle can score any retry date the agent picks.
+- **`balance_series`** — the hidden daily truth, running 400 days past `as_of`
+  so the oracle can score any retry date the agent picks, in any cycle.
 
 ### The numbers, across 20 seeds
 
@@ -268,7 +334,7 @@ Never judge these on one run. `n=500`, seeds 1–20:
 | unrecoverable within 30 days | **29.6 %** | 20.7 % | 41.6 % |
 | median days from failure to next payday | **11.1** | 9 | 13 |
 | failures landing beyond day 7 | **69.8 %** | 60.9 % | 80.0 % |
-| downtime share of failures (code 91) | **8.8 %** | 1.2 % | 21.9 % |
+| downtime share of failures (code 91), mean of per-seed shares | **8.8 %** | 1.2 % | 21.9 % |
 | AFA share of failures (code 1A) | **5.7 %** | 2.2 % | 12.1 % |
 | AFA share of failures **by value** | **27.8 %** | 12.8 % | 48.7 % |
 
@@ -636,7 +702,7 @@ downtime, 6.3% expired card, 5.6% AFA incomplete, 2.4% revoked consent:
 | **sequencer** | **59.3%** | **191,982** | **-653,258** | 357 | 2.2 | 65.3 |
 | oracle ceiling | 69.0% | 234,227 | -252,233 | 286 | 1.6 | 71.8 |
 
-**Headroom captured: 70.5%.** Comfortably between the floor and the ceiling,
+**Headroom captured: 70.7%.** Comfortably between the floor and the ceiling,
 which is where it has to be - at or above the oracle would mean information is
 leaking, and a test asserts it never happens on any seed.
 
@@ -671,6 +737,43 @@ hidden.
 | `no_afa_nudge` | -0.3% | -21,077 | 7/13/0 | 20 | **not consistent - see class 5** |
 | `no_optout_cost` | +1.0% | +37,394 | 9/11/0 | 20 | **not consistent - see below** |
 | `no_bank_health` | +0.0% | **0** | 0/0/20 | **0** | **no effect at all - see class 2** |
+
+#### A stateful policy shared across seeds
+
+**Every number in the table above was, for a while, computed by a contaminated
+model — and re-running it correctly changed nothing to the rupee.** Both halves
+are worth stating.
+
+`run_ablations.py` built one `SequencerPolicy` per variant and ran each across
+all twenty seeds. That policy carries a `BankHealthModel` and a dedup set keyed
+on customer id, and **customer ids repeat across seeds while meaning a different
+person on a different issuer** — `outage_book` is keyed on the seed, so each
+dataset has its own outage timeline. Measured: **71% of the 1,709 failure
+episodes never contributed their bank evidence at all**, rising to 99% by seed
+20, and 89% of repeated customer ids sit on a different issuer than their first
+sighting.
+
+Re-run with per-seed binding, **every variant's delta, W/B/T split and verdict is
+identical to the rupee**, and the script's whole output is byte-identical. The
+near-boundary rows — `irritation_build` at 13/20, `no_optout_cost` at 9/20 —
+did not move either. The reason is the class-2 structural result: the bank term
+applies only to downtime-coded failures, and `no_bank_health` already showed
+that replacing the entire model with a flat constant changes nothing on 20 of 20
+seeds. **A term that cannot move a decision cannot move one when it is corrupted
+either**, so this is a third independent confirmation of finding 1 rather than a
+lucky escape from a wrong number.
+
+It *was* a lucky escape from a wrong process, though. Had outages outlasted the
+notice period, the same defect would have rewritten every verdict here silently,
+and nothing would have caught it — a contaminated run is perfectly reproducible.
+So the fix is structural: `SequencerPolicy.for_dataset` mirrors
+`OraclePolicy.for_dataset`, `decide` raises on an episode from a book it was not
+bound to, `harness.compare` refuses a shared instance of any policy declaring
+`requires_per_seed_binding` across more than one seed, and
+`tests/test_policy_binding.py` fails on the pre-fix code. Auditing for the shape
+found four more instances nobody had noticed: `prior_robustness.py`,
+`lead_time_ablation.py`, `export_audit_sample.py`, and one inside `test_afa.py`.
+None of their outputs moved either, and all four are now bound per seed.
 
 **The three-bucket count was a bug fix, and it is worth recording that it
 changed no verdict.** The previous version counted every delta that was not
@@ -780,18 +883,31 @@ class-2 section below.
 `python scripts/lead_time_ablation.py`. Two separable costs, and the interesting
 result is which one is expensive.
 
-**The 24-hour timing requirement costs approximately zero.** Notice periods of
-0, 6, 12, 24 and 48 hours give identical recovery. The reason matters more than
-the number: what binds a retry sequencer is knowing *which day* the salary
-lands, not how far ahead it must commit. This agent has no bank-side signal, so
-lifting the notice period buys it scheduling freedom it has no new information
-to use. **Read it as a floor** - an agent with a real-time balance feed could
-react to a credit the moment it landed, and for that agent the rule would bind
-hard. Measuring that needs a signal this generator does not model.
+**The 24-hour timing requirement costs approximately zero.**
 
-**The mandated opt-out costs Rs 6,317 per 100 failures** (1.35 points of
-recovery), measured against a counterfactual world where the notice carries no
-way out. That is Sec 6(c), not Sec 6(a).
+| notice | days of lead | recovery | money recovered |
+| --- | --- | --- | --- |
+| 0h | 0 | 59.39% | 3,822,717 |
+| 6h | 1 | 59.45% | 3,839,648 |
+| 12h | 1 | 59.45% | 3,839,648 |
+| **24h (legal minimum)** | 1 | **59.45%** | **3,839,648** |
+| 48h | 2 | 59.45% | 3,857,840 |
+
+Removing the rule entirely is worth **-Rs 991 per 100 failures and -0.06 points
+of recovery** - the zero-lag agent is fractionally *worse*, which is noise
+rather than a result. 6h, 12h and 24h tie by construction: the simulator
+resolves presentments daily, so all three round to the same one-day constraint,
+and only 0h, 24h and 48h carry information. The reason matters more than the
+number: what binds a retry sequencer is knowing *which day* the salary lands,
+not how far ahead it must commit. This agent has no bank-side signal, so lifting
+the notice period buys it scheduling freedom it has no new information to use.
+**Read it as a floor** - an agent with a real-time balance feed could react to a
+credit the moment it landed, and for that agent the rule would bind hard.
+Measuring that needs a signal this generator does not model.
+
+**The mandated opt-out costs Rs 6,540 per 100 failures** (1.29 points of
+recovery, Rs 111,773 across 1,709 failures), measured against a counterfactual
+world where the notice carries no way out. That is Sec 6(c), not Sec 6(a).
 
 For a retry sequencer, **the expensive half of the e-mandate framework is the
 opt-out, not the timing.** As far as we can find, that number is not published
@@ -805,17 +921,18 @@ with deliberately wrong ones.
 
 | prior | recovery | vs correct | mean payday error | exact |
 | --- | --- | --- | --- | --- |
-| correct | 65.8% | | 2.84 days | 43.7% |
-| flat (uniform 1-28) | 65.6% | -0.2% | 5.01 days | 24.6% |
-| shifted (+5 days) | 64.8% | -1.0% | 4.49 days | 11.3% |
-| us_style (1st/15th) | 66.1% | +0.3% | 4.32 days | 37.3% |
+| correct | 59.3% | | 2.92 days | 36.1% |
+| flat (uniform 1-28) | 58.7% | -0.6 pp | 5.52 days | 15.5% |
+| shifted (+5 days) | 59.4% | +0.1 pp | 4.72 days | 6.9% |
+| us_style (1st/15th) | 59.1% | -0.3 pp | 4.68 days | 24.9% |
 
-**97% of the advantage survives the worst wrong prior.** And the reason is not
-that the prior is ignored - it clearly is not, since a wrong one roughly halves
-how often the exact payday is identified (43.7% -> 11.3%). It is that **the
-liquidity window is about a fortnight wide, so being two or three days out still
-puts the presentment on a day with money in the account.** The decision is
-coarser than the inference, and that is what makes it robust.
+**97% of the advantage survives the worst wrong prior** - `flat`, at 58.7%
+against 59.3%, over a 36.1% fixed-schedule floor. And the reason is not that the
+prior is ignored - it clearly is not, since a wrong one more than halves how
+often the exact payday is identified (36.1% -> 6.9%). It is that **the liquidity
+window is about a fortnight wide, so being two or three days out still puts the
+presentment on a day with money in the account.** The decision is coarser than
+the inference, and that is what makes it robust.
 
 So the method is doing the work. The payroll prior is a head start, not the
 result - which is the honest answer to "how much of this transfers to a market
@@ -1020,12 +1137,25 @@ survives `save_dataset`/`load_dataset` for free - `outage_book_for(dataset)`.
 reads it off the IFSC or UPI handle, and the whole class depends on being able
 to correlate failures across customers who share an issuer.
 
-**Realised share: 8.8% of failures carry code 91** (mean over 20 seeds).
-Individual seeds range from **1.2% to 21.9%**, and only a handful land inside
-the 8-12% target band. That spread is not a tuning failure - it is the correlation
-showing up. Insufficient funds is an independent per-customer draw, so its share
-is stable; one outage fails every mandate on that issuer at once, so whether a
-large bank happened to be down on a busy debit day swings the whole seed.
+**Realised share: 8.8% of failures carry code 91** — the **mean of the twenty
+per-seed shares**. Individual seeds range from **1.2% to 21.9%**, and 4 of the
+20 land inside the 8-12% target band.
+
+That spread is not a tuning failure - it is the correlation showing up.
+Insufficient funds is an independent per-customer draw, so its share is stable;
+one outage fails every mandate on that issuer at once, so whether a large bank
+happened to be down on a busy debit day swings the whole seed.
+
+**8.8% or 8.9%? Both, and they are different statistics.** The failure mix
+elsewhere in this file gives the downtime share as **8.9%** — the **pooled
+ratio**, 152 downtime failures over 1,709 failures in total. The 8.8% here is
+the **mean of the twenty per-seed shares**. A mean of per-seed shares weights
+every seed equally; a pooled ratio weights every failure equally, so seeds
+carrying more failures count for more. On a class whose per-seed share runs from
+1.2% to 21.9% the two cannot be expected to coincide, and the gap between them is
+a property of the spread rather than an error. Both are reported, each is
+labelled where it appears, and `scripts/verify_docs.py` checks them against
+separate producers.
 
 ### The first cross-customer signal
 
@@ -1053,7 +1183,8 @@ certain.
 
 ### Results, 20 seeds x 500 customers, downtime failures only
 
-152 downtime failures out of 1,709 total (8.9%).
+152 downtime failures out of 1,709 total — 8.9% **pooled**, against the 8.8%
+mean-of-per-seed-shares quoted in the dataset table above.
 
 | policy | recovery | presentments | into a live outage | notices |
 | --- | --- | --- | --- | --- |
@@ -1105,7 +1236,7 @@ a payments company would instinctively build for this failure mode.
 **3. The money equation has no time preference, and this class exposes it.**
 
 The agent recovers as often as the oracle but takes **539 hours** after the
-outage clears against the oracle's **38**. It is not a downtime bug. Rs 2,571
+outage clears against the oracle's **37**. It is not a downtime bug. Rs 2,571
 collected in thirty days scores higher than Rs 2,551 collected tomorrow, because
 the churn term decays with time and nothing penalises delay. For insufficient
 funds that barely shows - you must wait for payday anyway. For downtime the
@@ -1116,14 +1247,16 @@ reported number depends on it. Measured on this class:
 
 | discount/day | recovery | mean days after clear |
 | --- | --- | --- |
-| 0.00 (as specified) | 96.1% | 23.2 |
-| 0.01 | 96.1% | **10.7** |
-| 0.03 | 96.1% | 7.5 |
+| 0.00 (as specified) | 94.1% | 22.5 |
+| 0.01 | 93.4% | **10.8** |
+| 0.03 | 94.1% | 9.2 |
 
-A 1%/day preference roughly halves the delay at no cost in recovery. It is left
-off because turning it on would change every class-1 number already reported -
-that is a call for the write-up, not a silent edit - but it is the
-highest-value change on the list.
+A 1%/day preference roughly halves the delay for 0.7 points of recovery, and at
+3%/day the recovery is back where it started. Read the recovery column as flat
+to within a point rather than as untouched: on 152 episodes a 0.7-point move is
+one episode. It is left off because turning it on would change every class-1
+number already reported - that is a call for the write-up, not a silent edit -
+but it is the highest-value change on the list.
 
 ### A bug this class surfaced in class 1
 
@@ -1256,15 +1389,15 @@ Quote the value figures; the rate is context, not the result.
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 insufficient funds | 32.7 % | 80.4 % | 47.7 pp | **73.5 %** | one customer, alone | ~12 cycles of structured attempt history |
 | 2 bank downtime | 93.9 % | 99.2 % | 5.3 pp | **78.7 %** | pooled across an issuer | every other mandate on the same bank |
-| **5 AFA incomplete** | **49.5 %** | **92.4 %** | **42.9 pp** | **43.4 %** | one customer, alone | a handful of sparse `1A` observations |
+| **5 AFA incomplete** | **49.5 %** | **92.4 %** | **42.8 pp** | **43.4 %** | one customer, alone | a handful of sparse `1A` observations |
 
 (Measured by value, on each class in isolation, 20 seeds. By rate the figures
-are 72.7 %, 87.5 % and 44.0 % — the ordering is the same.)
+are 72.7 %, 87.5 % and 43.9 % — the ordering is the same.)
 
 Read class 2's number carefully: its gap is only **5.3 points wide**, so
 capturing 78.7 % of it is worth Rs 15k, and the percentage flatters a class
 where almost nothing was on the table. Classes 1 and 5 are the fair comparison —
-**near-identical gaps of 47.7 and 42.9 points, and the agent captures 73.5 % of
+**near-identical gaps of 47.7 and 42.8 points, and the agent captures 73.5 % of
 one and 43.4 % of the other.**
 
 The explanation is legible, and it is a result about *when class-specific
@@ -1544,6 +1677,8 @@ scripts/run_downtime.py         failure class 2, and what the notice rule costs 
 scripts/run_afa.py              failure class 5, reported by MONEY rather than rate
 scripts/show_audit.py           the full decision trail for one customer
 scripts/export_audit_sample.py  eleven episodes to docs/audit_samples.md
+scripts/verify_docs.py          every number in README/CONTEXT still reproduces
+scripts/_emit.py                the --json contract those checks read
 
 tests/test_generator.py   unit-level: balance, oracle, population, opt-out
 tests/test_dataset.py     dataset-level: reproducibility, realism, leakage
@@ -1555,6 +1690,8 @@ tests/test_sequencer.py   the policy, its audit trail, and the guardrails
 tests/test_classes.py     the router, the never-retry classes, the audit trail
 tests/test_downtime.py    outages, bank health inference, the two-condition oracle
 tests/test_afa.py         the AFA gate, OTP inference, and the out-of-band nudge
+tests/test_docs.py        the documented numbers, marked slow - `pytest -m slow`
+tests/test_policy_binding.py  a stateful policy may not be reused across seeds
 
 docs/audit_samples.md     eleven rendered episodes, picked by category
 ```

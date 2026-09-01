@@ -600,11 +600,17 @@ def test_the_afa_nudge_switch_leaves_class_1_untouched():
     on and off. If flipping it moves a single rupee here, the switch has leaked
     out of its class.
     """
-    on = SequencerPolicy(SequencerConfig(use_afa_nudge=True), name="on")
-    off = SequencerPolicy(SequencerConfig(use_afa_nudge=False), name="off")
+    on_config = SequencerConfig(use_afa_nudge=True)
+    off_config = SequencerConfig(use_afa_nudge=False)
     checked = 0
     for seed in (1, 2, 3, 4, 5):
         data = generate_dataset(n_customers=400, seed=seed)
+        # Bound per seed. The sequencer pools bank evidence across customers,
+        # and a customer id is a different person in every dataset, so one
+        # instance down this loop would compare two arms that had each seen a
+        # different mixture of the previous seeds. The policy raises on it now.
+        on = SequencerPolicy.for_dataset(data, on_config, name="on")
+        off = SequencerPolicy.for_dataset(data, off_config, name="off")
         for event in data.failure_events:
             if event.failure_class != rules.FAILURE_CLASS_INSUFFICIENT_FUNDS:
                 continue

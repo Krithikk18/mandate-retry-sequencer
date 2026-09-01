@@ -34,6 +34,7 @@ from agent.payday import (  # noqa: E402
     PRIOR_FLOOR_MASS,
     PaydayModel,
 )
+from _emit import add_json_argument, emit  # noqa: E402
 from agent.sequencer import SequencerConfig, SequencerPolicy  # noqa: E402
 from evaluation.harness import compare  # noqa: E402
 from generator.generate import generate_dataset  # noqa: E402
@@ -71,10 +72,21 @@ PRIORS: dict[str, dict[int, float] | None] = {
 }
 
 
+def _prior_factory(label: str, prior):
+    """A per-seed constructor for one prior. Named, so it closes over its own."""
+    config = SequencerConfig(payday_prior=prior)
+
+    def build(dataset):
+        return SequencerPolicy.for_dataset(dataset, config, name=f"prior_{label}")
+
+    return build
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=int, default=20)
     parser.add_argument("--n", type=int, default=500)
+    add_json_argument(parser)
     args = parser.parse_args()
 
     seeds = list(range(1, args.seeds + 1))
@@ -86,11 +98,12 @@ def main() -> None:
     print("the population is drawn from the `correct` prior, so it is the")
     print("optimistic case by construction\n")
 
+    # Per seed, for the reason in run_ablations.py: one SequencerPolicy across
+    # twenty seeds carries bank evidence between books whose customer ids mean
+    # different people. compare() rejects the shared shape outright.
     policies = [LegacyFixedSchedule(), OraclePolicy.for_dataset]
     for label, prior in PRIORS.items():
-        policies.append(
-            SequencerPolicy(SequencerConfig(payday_prior=prior), name=f"prior_{label}")
-        )
+        policies.append(_prior_factory(label, prior))
 
     report = compare(
         policies,
@@ -133,6 +146,7 @@ def main() -> None:
     # money will not notice, because the liquidity window is a fortnight wide.
     print(f"\n{RULE}\nHOW WRONG IS THE INFERRED PAYDAY?\n{RULE}")
     print("  Truth-vs-inference, which only the evaluator can see.\n")
+    accuracy: dict[str, dict[str, float]] = {}
     print(f"  {'prior':<12} {'mean |error|':>13} {'within 2 days':>15} {'exact':>8}")
     for label, prior in PRIORS.items():
         errors: list[int] = []
@@ -162,6 +176,11 @@ def main() -> None:
             mean_error = sum(errors) / len(errors)
             close = sum(1 for e in errors if e <= 2) / len(errors)
             exact = sum(1 for e in errors if e == 0) / len(errors)
+            accuracy[label] = {
+                "mean_abs_error_days": mean_error,
+                "within_2_days": close,
+                "exact": exact,
+            }
             print(f"  {label:<12} {mean_error:>13.2f} {close:>15.1%} {exact:>8.1%}")
 
     worst_label = min(
@@ -196,6 +215,36 @@ def main() -> None:
         print("  is not known in advance this agent would lose most of its edge.")
         print("  Report the flat-prior number as the headline; the correct-prior")
         print("  number is an upper bound that assumes knowledge you may not have.")
+    # Written from the same summaries the tables above were rendered from, so
+    # the file cannot disagree with the report. See scripts/_emit.py.
+    emit(
+        args.json_path,
+        script="prior_robustness.py",
+        seeds=args.seeds,
+        n=args.n,
+        payload={
+            "legacy_floor": floor,
+            "oracle_ceiling": report.summary[OraclePolicy.name]["recovery_rate"].mean,
+            "priors": {
+                label: {
+                    "recovery_rate": report.summary[f"prior_{label}"][
+                        "recovery_rate"
+                    ].mean,
+                    "money": report.summary[f"prior_{label}"]["money_recovered"].mean,
+                    "vs_correct_points": (
+                        report.summary[f"prior_{label}"]["recovery_rate"].mean - correct
+                    )
+                    * 100,
+                    **accuracy.get(label, {}),
+                }
+                for label in PRIORS
+            },
+            "worst_prior": worst_label,
+            "worst_prior_recovery": worst,
+            "advantage_retained": retained,
+        },
+    )
+
     print(f"\nelapsed {time.time() - started:.0f}s")
 
 

@@ -146,12 +146,17 @@ def main() -> None:
     parser.add_argument("--out", type=str, default="docs/audit_samples.md")
     args = parser.parse_args()
 
-    sequencer = SequencerPolicy()
+    # Rebuilt inside the seed loop below - see there.
     legacy = LegacyFixedSchedule()
     found: dict[str, tuple[EpisodeResult, EpisodeResult, int]] = {}
 
     for seed in range(1, args.seeds + 1):
         dataset = generate_dataset(n_customers=args.n, seed=seed)
+        # Per seed: the sequencer pools bank evidence across customers sharing
+        # an issuer, and a customer id means a different person in every
+        # dataset. One instance across the scanned seeds would render episodes
+        # decided partly on another book's outages.
+        sequencer = SequencerPolicy.for_dataset(dataset)
         for event in dataset.failure_events:
             if len(found) == len(CASES):
                 break

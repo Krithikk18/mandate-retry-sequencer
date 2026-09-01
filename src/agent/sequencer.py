@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from typing import Any
 
 from generator import rules
 from policy.base import Policy, PolicyState, RetryDecision
@@ -99,8 +100,68 @@ class SequencerConfig:
     defer_commitment: bool = True  # WAIT rather than committing early
 
 
+# The public fields that identify a customer to a policy. All six are readable
+# by any policy, so comparing them leaks nothing - and two different people
+# agreeing on all six is a coincidence that does not survive a whole book.
+#
+# This exists because customer ids REPEAT ACROSS SEEDS: CUST_0001 is a different
+# person, on a different issuer, in every dataset. A policy that carries state
+# keyed on customer id from one seed into the next is silently wrong rather than
+# noisily broken, which is the worst way for an evaluation harness to fail.
+IDENTITY_FIELDS: tuple[str, ...] = (
+    "subscription_amount",
+    "rail",
+    "debit_day_of_month",
+    "tenure_months",
+    "monthly_ltv",
+    "bank_id",
+)
+
+
+def customer_identity(customer: Any) -> tuple:
+    """The public signature of one customer. Works on Customer or AgentCustomer."""
+    return tuple(getattr(customer, field) for field in IDENTITY_FIELDS)
+
+
+def _mismatch_message(
+    policy_name: str, bound_label: str, customer_id: str, expected: tuple, got: tuple
+) -> str:
+    differing = ", ".join(
+        f"{field}={was!r} -> {now!r}"
+        for field, was, now in zip(IDENTITY_FIELDS, expected, got)
+        if was != now
+    )
+    return (
+        f"{policy_name} is scoring an episode from the wrong dataset: "
+        f"{customer_id} differs from {bound_label} ({differing}). Customer ids "
+        "repeat across seeds and denote a different person each time, so a "
+        "policy carrying bank-health evidence between seeds prices the wrong "
+        "issuer. Build one per seed with SequencerPolicy.for_dataset, or pass "
+        "that classmethod to harness.compare."
+    )
+
+
 class SequencerPolicy(Policy):
-    """Payday-aware, cost-aware retry sequencing."""
+    """Payday-aware, cost-aware retry sequencing.
+
+    **This policy is STATEFUL and must be bound to one dataset.** Unlike the
+    fixed schedule, it accumulates cross-customer bank-outage evidence as it
+    decides, and that evidence is meaningful only within the seed that produced
+    it: ``outage_book`` is keyed on the seed, so every dataset has its own
+    independent outage timeline, and the same customer id denotes a different
+    person on a different issuer in each one.
+
+    Use ``SequencerPolicy.for_dataset(dataset)`` - or pass the classmethod
+    itself to ``harness.compare``, which calls it once per seed, exactly as it
+    already does for ``OraclePolicy.for_dataset``. A single instance reused
+    across seeds is a bug, and ``decide`` raises rather than scoring badly in
+    silence; see ``_check_binding``.
+    """
+
+    # Read by harness.compare, which refuses to run one instance of a policy
+    # declaring this across several seeds. A checker that cannot detect this
+    # class of error will bless it again.
+    requires_per_seed_binding: bool = True
 
     def __init__(
         self,
@@ -116,7 +177,15 @@ class SequencerPolicy(Policy):
         # already primed it from the whole book; otherwise it accumulates as
         # customers are seen, which is how a live system would learn.
         self.bank_health = bank_health or BankHealthModel()
-        self._ingested: set[str] = set()
+        # customer_id -> public signature, so this doubles as the dedup set for
+        # bank evidence AND as the record that catches a second seed's customers
+        # arriving under ids this policy has already seen.
+        self._ingested: dict[str, tuple] = {}
+        # Filled by bind_to(). None means "not explicitly bound", in which case
+        # the guard still fires on the first REPEATED id whose public fields
+        # disagree - which is what a shared instance produces on its second seed.
+        self._bound_to: dict[str, tuple] | None = None
+        self._bound_label: str | None = None
         self.engine = DecisionEngine(
             lead_time_hours=self.config.lead_time_hours,
             irritation_direction=self.config.irritation_direction,
@@ -124,18 +193,116 @@ class SequencerPolicy(Policy):
             daily_discount=self.config.daily_discount,
         )
 
+    # --- binding -------------------------------------------------------------
+
+    @classmethod
+    def for_dataset(
+        cls,
+        dataset: Any,
+        config: SequencerConfig | None = None,
+        name: str = "sequencer",
+        bank_health: BankHealthModel | None = None,
+    ) -> "SequencerPolicy":
+        """Build a policy bound to ONE dataset's book. The safe constructor.
+
+        Mirrors ``OraclePolicy.for_dataset`` deliberately, and for the same
+        reason: both carry per-seed state keyed on a customer id that repeats
+        across seeds. The oracle carries a truth table; this carries a
+        bank-health model. Both are silently wrong when reused, so both are
+        built the same way and both raise when handed a foreign episode.
+
+        ``dataset`` may be a truth-side ``Dataset`` or an ``AgentDataset``: only
+        the six public fields in ``IDENTITY_FIELDS`` are read, by attribute, so
+        nothing hidden is touched and ``agent/`` imports no truth module to do
+        it.
+
+        Pass the classmethod itself to ``harness.compare``, which invokes it
+        once per seed::
+
+            compare([LegacyFixedSchedule(), SequencerPolicy.for_dataset], ...)
+
+        or, with a config, a small lambda over it.
+        """
+        policy = cls(config, name=name, bank_health=bank_health)
+        policy.bind_to(dataset)
+        return policy
+
+    def bind_to(self, dataset: Any) -> "SequencerPolicy":
+        """Declare which book this policy is scoring. Returns self."""
+        self._bound_to = {
+            customer.customer_id: customer_identity(customer)
+            for customer in dataset.customers
+        }
+        seed = getattr(dataset, "seed", None)
+        self._bound_label = f"seed {seed}" if seed is not None else "an unnamed dataset"
+        return self
+
+    def _check_binding(self, state: PolicyState) -> None:
+        """Raise if this episode came from a dataset this policy is not scoring.
+
+        The same discipline as ``OraclePolicy.decide``: fail loudly rather than
+        score quietly against the wrong book. The failure being guarded is not
+        hypothetical - ``scripts/run_ablations.py`` built one instance per
+        variant and ran it over twenty seeds, so 71% of all failure episodes
+        never contributed their bank evidence at all (the dedup below saw an id
+        it had already recorded), and the evidence that *was* recorded priced
+        the wrong issuer 89% of the time.
+
+        Two levels, because both mistakes are real:
+
+        * **Bound** (``for_dataset``) - any customer absent from the bound book,
+          or present with different public fields, is a foreign episode. Fires
+          on the first one.
+        * **Unbound** - no book to check against, but a customer id seen earlier
+          with a DIFFERENT signature is the same error arriving one seed later.
+          This is what catches a plain ``SequencerPolicy()`` shared across seeds
+          even when nobody remembered to bind it.
+        """
+        customer = state.customer
+        customer_id = customer.customer_id
+        identity = customer_identity(customer)
+
+        if self._bound_to is not None:
+            expected = self._bound_to.get(customer_id)
+            if expected is None:
+                raise ValueError(
+                    f"{self.name} is bound to {self._bound_label}, which has no "
+                    f"{customer_id}. Customer ids are per-dataset; build one "
+                    "policy per seed with SequencerPolicy.for_dataset."
+                )
+            if expected != identity:
+                raise ValueError(
+                    _mismatch_message(self.name, self._bound_label, customer_id,
+                                      expected, identity)
+                )
+            return
+
+        seen = self._ingested.get(customer_id)
+        if seen is not None and seen != identity:
+            raise ValueError(
+                _mismatch_message(
+                    self.name,
+                    "the dataset it first saw this customer in",
+                    customer_id,
+                    seen,
+                    identity,
+                )
+            )
+
     # --- liquidity -----------------------------------------------------------
 
     def _ingest_bank_evidence(self, state: PolicyState) -> None:
         """Fold this customer's declines into the shared bank-health model.
 
         Deduplicated by customer id, so replaying a customer's history on every
-        day of their episode does not count the same failure twenty times.
+        day of their episode does not count the same failure twenty times. The
+        dedup is only sound WITHIN one dataset, which is what ``_check_binding``
+        enforces before this runs.
         """
         customer_id = state.customer.customer_id
         if customer_id in self._ingested:
             return
-        self._ingested.add(customer_id)
+        self._ingested[customer_id] = customer_identity(state.customer)
         for record in state.payment_history:
             if record.succeeded:
                 continue
@@ -275,6 +442,7 @@ class SequencerPolicy(Policy):
     # --- the decision --------------------------------------------------------
 
     def decide(self, state: PolicyState) -> RetryDecision:
+        self._check_binding(state)
         self._ingest_bank_evidence(state)
         handler = route(state.failure_event)
         if not handler.permits_retry(state):

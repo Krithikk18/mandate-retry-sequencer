@@ -66,6 +66,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from _emit import add_json_argument, emit  # noqa: E402
 from agent.sequencer import SequencerConfig, SequencerPolicy  # noqa: E402
 from evaluation.harness import compare  # noqa: E402
 from generator.generate import generate_dataset  # noqa: E402
@@ -111,11 +112,28 @@ HEADLINE = (
 )
 
 
+def _variant_factory(label: str, overrides: dict):
+    """A per-seed constructor for one ablation variant.
+
+    A named function rather than a lambda in the loop, so each variant closes
+    over its OWN label and overrides. The late-binding bug that an inline
+    lambda would introduce is the same shape as the one this fixes: state from
+    one iteration silently reused in the next.
+    """
+    config = SequencerConfig(**overrides)
+
+    def build(dataset):
+        return SequencerPolicy.for_dataset(dataset, config, name=label)
+
+    return build
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=int, default=20)
     parser.add_argument("--n", type=int, default=500)
     parser.add_argument("--no-oracle-metrics", action="store_true")
+    add_json_argument(parser)
     args = parser.parse_args()
 
     seeds = list(range(1, args.seeds + 1))
@@ -125,9 +143,16 @@ def main() -> None:
     print(f"{args.seeds} seeds x {args.n} customers\n")
     datasets = {s: generate_dataset(n_customers=args.n, seed=s) for s in seeds}
 
+    # One policy PER SEED, not one per variant. SequencerPolicy carries a
+    # bank-health model keyed on customer id, and customer ids denote a
+    # different person on a different issuer in every dataset - so a single
+    # instance run across twenty seeds skips most of the evidence and files the
+    # rest against the wrong bank. compare() now refuses the shared shape, and
+    # the policy itself raises; this passes the per-seed constructor, exactly as
+    # the oracle ceiling beside it has always been passed.
     policies = [LegacyFixedSchedule(), OraclePolicy.for_dataset]
     for label, overrides in VARIANTS.items():
-        policies.append(SequencerPolicy(SequencerConfig(**overrides), name=label))
+        policies.append(_variant_factory(label, overrides))
 
     report = compare(
         policies,
@@ -169,6 +194,10 @@ def main() -> None:
     print("  tie is an absence of evidence, not a disagreement. The bite count")
     print("  is printed with every verdict so the denominator is never hidden.\n")
     full_rows = report.per_seed["full"]
+    # Kept so --json can report exactly the rows that were printed rather than
+    # recomputing them; a verifier that checks a second computation checks
+    # nothing. See scripts/_emit.py.
+    verdicts: dict[str, dict] = {}
     print(
         f"  {'variant':<18} {'d recovery':>12} {'d net value':>14} "
         f"{'W/B/T':>12} {'bit':>5}   verdict"
@@ -239,6 +268,16 @@ def main() -> None:
                 )
             else:
                 verdict = f"variant is {direction}: {tail}"
+        verdicts[name] = {
+            "delta_recovery": delta_rec,
+            "delta_recovery_points": delta_rec * 100,
+            "delta_net_value": delta_net,
+            "worse": worse,
+            "better": better,
+            "tied": tied,
+            "bit": bitten,
+            "verdict": verdict,
+        }
         print(
             f"  {name:<18} {delta_rec:>+11.1%} {delta_net:>+14,.0f} "
             f"{worse:>3}W/{better:<2}B/{tied:<2}T {bitten:>5}   {verdict}"
@@ -251,8 +290,50 @@ def main() -> None:
     print(f"  legacy floor      {floor:>7.1%}")
     print(f"  sequencer         {agent:>7.1%}")
     print(f"  oracle ceiling    {ceiling:>7.1%}")
-    if ceiling > floor:
-        print(f"\n  headroom captured {(agent - floor) / (ceiling - floor):>7.1%}")
+    captured = (agent - floor) / (ceiling - floor) if ceiling > floor else None
+    if captured is not None:
+        print(f"\n  headroom captured {captured:>7.1%}")
+
+    # Written from the very rows the tables above were rendered from, so the
+    # file cannot disagree with the report. See scripts/_emit.py.
+    emit(
+        args.json_path,
+        script="run_ablations.py",
+        seeds=args.seeds,
+        n=args.n,
+        payload={
+            "table": {
+                name: {
+                    metric: (
+                        report.summary[name][metric].mean
+                        if report.summary.get(name, {}).get(metric)
+                        and report.summary[name][metric].values
+                        else None
+                    )
+                    for metric, _, _ in HEADLINE
+                }
+                for name in order
+                if name in report.summary
+            },
+            "recovery_range": {
+                name: {
+                    "mean": report.summary[name]["recovery_rate"].mean,
+                    "low": report.summary[name]["recovery_rate"].low,
+                    "high": report.summary[name]["recovery_rate"].high,
+                }
+                for name in order
+                if name in report.summary
+            },
+            "verdicts": verdicts,
+            "headline": {
+                "legacy_floor": floor,
+                "sequencer": agent,
+                "oracle_ceiling": ceiling,
+                "headroom_captured": captured,
+            },
+        },
+    )
+
     print(f"\nelapsed {time.time() - started:.0f}s")
 
 

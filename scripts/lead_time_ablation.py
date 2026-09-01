@@ -36,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from _emit import add_json_argument, emit  # noqa: E402
 from agent.sequencer import SequencerConfig, SequencerPolicy  # noqa: E402
 from evaluation.harness import evaluate  # noqa: E402
 from generator.generate import generate_dataset  # noqa: E402
@@ -49,6 +50,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=int, default=20)
     parser.add_argument("--n", type=int, default=500)
+    add_json_argument(parser)
     args = parser.parse_args()
 
     seeds = list(range(1, args.seeds + 1))
@@ -62,13 +64,20 @@ def main() -> None:
 
     results: dict[int, dict[str, float]] = {}
     for hours in LEAD_TIMES_HOURS:
-        policy = SequencerPolicy(
-            SequencerConfig(lead_time_hours=hours), name=f"lead_{hours}h"
-        )
-        lead_days = policy.engine.lead_time_days
+        config = SequencerConfig(lead_time_hours=hours)
+        # The lead time is a property of the config, not of any one seed's
+        # policy, so it is read off a throwaway instance built for the purpose.
+        lead_days = SequencerPolicy(config).engine.lead_time_days
         money = recovered = failures = 0.0
         net = 0.0
         for seed in seeds:
+            # Rebuilt per seed: this policy pools bank evidence across
+            # customers, and that pooling is only meaningful inside one dataset.
+            # A single instance reused down this loop would carry seed 1's
+            # issuers into every later seed. See SequencerPolicy.for_dataset.
+            policy = SequencerPolicy.for_dataset(
+                datasets[seed], config, name=f"lead_{hours}h"
+            )
             report = evaluate(
                 policy,
                 datasets[seed],
@@ -97,9 +106,11 @@ def main() -> None:
               f"{row['money']:>18,.0f} {row['net']:>16,.0f}{marker}")
 
     # --- the second, larger cost: the notice must OFFER a way out -----------
-    free_policy = SequencerPolicy(name="no_optout_world")
     free_money = free_recovered = free_failures = 0.0
     for seed in seeds:
+        free_policy = SequencerPolicy.for_dataset(
+            datasets[seed], name="no_optout_world"
+        )
         report = evaluate(
             free_policy,
             datasets[seed],
@@ -167,6 +178,40 @@ def main() -> None:
           f"({abs(notice_rate) * 100:.1f} points of recovery).")
     print("\n  For a retry sequencer, the expensive half of the e-mandate")
     print("  framework is Sec 6(c), not Sec 6(a).")
+
+    # Written from the same dicts the tables above were rendered from, so the
+    # file cannot disagree with the report. See scripts/_emit.py.
+    emit(
+        args.json_path,
+        script="lead_time_ablation.py",
+        seeds=args.seeds,
+        n=args.n,
+        payload={
+            "total_failures": int(legal["failures"]),
+            "notice_periods": {
+                f"{hours}h": {
+                    "lead_days": results[hours]["lead_days"],
+                    "recovery_rate": results[hours]["recovery_rate"],
+                    "money": results[hours]["money"],
+                    "net_value": results[hours]["net"],
+                }
+                for hours in LEAD_TIMES_HOURS
+            },
+            "timing_cost": {
+                "money": money_gap,
+                "per_hundred_failures": money_gap / legal["failures"] * 100,
+                "recovery_points": rate_gap * 100,
+            },
+            "optout_cost": {
+                "recovery_with_optout": legal["recovery_rate"],
+                "recovery_without_optout": free_rate,
+                "money": notice_money,
+                "per_hundred_failures": notice_money / legal["failures"] * 100,
+                "recovery_points": notice_rate * 100,
+            },
+        },
+    )
+
     print(f"\nelapsed {time.time() - started:.0f}s")
 
 

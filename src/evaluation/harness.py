@@ -282,6 +282,55 @@ def _materialise(spec: PolicySpec, dataset: Dataset) -> Policy:
     return spec if isinstance(spec, Policy) else spec(dataset)
 
 
+def _reject_shared_stateful_policies(
+    specs: Sequence[PolicySpec], seeds: Sequence[int]
+) -> None:
+    """Refuse to run one instance of a per-seed policy across several seeds.
+
+    A policy declares ``requires_per_seed_binding = True`` when it carries state
+    keyed on something that is only meaningful within one dataset. Customer ids
+    repeat across seeds and denote a different person each time, so such a
+    policy handed a second seed is not approximately right - it is scoring the
+    wrong book with the wrong evidence, and it does so silently.
+
+    This is a real defect that shipped: ``scripts/run_ablations.py`` built one
+    ``SequencerPolicy`` per variant and passed the instances here, so every
+    variant carried one bank-health model across all twenty seeds. 71% of
+    failure episodes never contributed their evidence, and 89% of the evidence
+    that was kept was filed against the wrong issuer. Every ablation verdict in
+    the README was computed on top of it, and the check that was supposed to
+    certify those numbers could not see the problem, because a contaminated run
+    is perfectly reproducible.
+
+    So the harness now refuses the shape rather than trusting the caller to
+    remember. Pass the per-seed constructor instead::
+
+        compare([LegacyFixedSchedule(), SequencerPolicy.for_dataset], seeds=...)
+
+    One seed is not an error: there is no second book to leak into, and tests
+    that score a single dataset stay valid.
+    """
+    if len(seeds) < 2:
+        return
+    offenders = [
+        spec
+        for spec in specs
+        if isinstance(spec, Policy) and getattr(spec, "requires_per_seed_binding", False)
+    ]
+    if not offenders:
+        return
+    names = ", ".join(sorted(p.name for p in offenders))
+    raise ValueError(
+        f"compare() was given {len(offenders)} policy instance(s) that must be "
+        f"rebuilt per seed ({names}), across {len(seeds)} seeds. These carry "
+        "state keyed on customer id, and customer ids denote a different person "
+        "in every dataset, so one instance would score later seeds against "
+        "earlier seeds' evidence. Pass the per-seed constructor instead - e.g. "
+        "SequencerPolicy.for_dataset, or a lambda over it when a config is "
+        "needed - exactly as OraclePolicy.for_dataset is passed."
+    )
+
+
 def compare(
     policies: Iterable[PolicySpec],
     seeds: Sequence[int],
@@ -298,13 +347,16 @@ def compare(
     """Run every policy on every seed and summarise.
 
     ``policies`` may contain Policy instances or callables taking the seed's
-    Dataset and returning one; see ``_materialise``.
+    Dataset and returning one; see ``_materialise``. A policy that declares
+    ``requires_per_seed_binding`` may NOT be passed as a shared instance when
+    there is more than one seed - see ``_reject_shared_stateful_policies``.
 
     ``headroom_captured`` needs both a floor and a ceiling, so it is filled in
     here: (policy - baseline) / (ceiling - baseline), measured on recovery rate
     within each seed before averaging.
     """
     specs = list(policies)
+    _reject_shared_stateful_policies(specs, seeds)
     per_seed: dict[str, list[PolicyReport]] = {}
 
     for seed in seeds:

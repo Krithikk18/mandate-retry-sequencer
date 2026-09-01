@@ -29,6 +29,7 @@ import calendar
 import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from functools import lru_cache
 from typing import Iterable, Sequence
 
 from generator import rules
@@ -109,17 +110,37 @@ MIN_ATTEMPTS_FOR_DEAD_CYCLE: int = 2
 CYCLE_DAYS: int = 30
 
 
+@lru_cache(maxsize=None)
+def _days_in_month(year: int, month: int) -> int:
+    """``calendar.monthrange``'s second element, memoised.
+
+    Pure in (year, month) and the calendar is not going to change, so this is a
+    cache with no invalidation story to get wrong. It exists because
+    ``_last_payday_on_or_before`` is the innermost call in the liquidity curve:
+    the curve is rebuilt for every candidate date on every decision day, and
+    each rebuild marginalises over all 31 candidate paydays, so this ran three
+    million times in a two-seed downtime run and ``monthrange`` re-derived the
+    weekday every time.
+    """
+    return calendar.monthrange(year, month)[1]
+
+
+@lru_cache(maxsize=100_000)
 def _last_payday_on_or_before(day: date, payday: int) -> date:
     """The most recent occurrence of day-of-month ``payday`` at or before ``day``.
 
     Month-end paydays clamp to the last day of short months, exactly as real
     payroll does: a 31st salary lands on the 28th in February.
+
+    Memoised for the same reason as ``_days_in_month``, and bounded because the
+    key space is small in practice: one entry per (date, payday) pair, and a run
+    only ever asks about the dates inside its own window.
     """
-    this_month = min(payday, calendar.monthrange(day.year, day.month)[1])
+    this_month = min(payday, _days_in_month(day.year, day.month))
     if this_month <= day.day:
         return date(day.year, day.month, this_month)
     year, month = (day.year - 1, 12) if day.month == 1 else (day.year, day.month - 1)
-    return date(year, month, min(payday, calendar.monthrange(year, month)[1]))
+    return date(year, month, min(payday, _days_in_month(year, month)))
 
 
 def days_since_payday(day: date, payday: int) -> int:

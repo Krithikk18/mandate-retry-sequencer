@@ -33,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from _emit import add_json_argument, emit  # noqa: E402
 from agent.sequencer import SequencerConfig, SequencerPolicy  # noqa: E402
 from evaluation.simulator import run_episode  # noqa: E402
 from generator import rules  # noqa: E402
@@ -42,6 +43,11 @@ from policy.oracle_policy import OraclePolicy  # noqa: E402
 
 RULE = "=" * 88
 
+# The time-preference sweep. 0.0 is the specified configuration and every other
+# number in this script is measured at it; the other two exist to price what
+# turning it on would buy.
+DISCOUNT_RATES: tuple[float, ...] = (0.0, 0.01, 0.03)
+
 
 class Tally:
     """Per-policy totals over the downtime failures of one run."""
@@ -50,6 +56,10 @@ class Tally:
         self.episodes = 0
         self.recovered = 0
         self.money = 0.0
+        # Rupees the episodes in this tally put at risk. Not printed - the
+        # headline table for this class is by rate - but the headroom table in
+        # README.md quotes class 2 BY VALUE, so the producer has to carry it.
+        self.value_at_risk = 0.0
         self.presentments = 0
         self.into_outage = 0
         self.notifications = 0
@@ -60,6 +70,7 @@ class Tally:
         self.episodes += 1
         self.recovered += result.outcome == "RECOVERED"
         self.money += result.recovered_amount
+        self.value_at_risk += result.customer.subscription_amount
         self.presentments += result.attempts_used
         self.notifications += result.notifications_sent
         self.net_value += result.net_value
@@ -75,6 +86,11 @@ class Tally:
     @property
     def recovery_rate(self) -> float:
         return self.recovered / self.episodes if self.episodes else 0.0
+
+    @property
+    def value_recovered_share(self) -> float:
+        """Money recovered as a share of money at risk. The by-VALUE rate."""
+        return self.money / self.value_at_risk if self.value_at_risk else 0.0
 
     @property
     def mean_hours_after_clear(self) -> float:
@@ -110,6 +126,29 @@ def _max_outage_hours() -> float:
     return OUTAGE_MAX_HOURS
 
 
+def _mean_days_after_clear(tally: "Tally") -> float | None:
+    """Mean days from the outage clearing to the recovery, or None if never."""
+    days = [h / 24.0 for h in tally.hours_after_clear if h == h]
+    return sum(days) / len(days) if days else None
+
+
+def _tally_payload(tally: "Tally") -> dict:
+    """One policy's figures, taken off the tally the report printed from."""
+    return {
+        "episodes": tally.episodes,
+        "recovered": tally.recovered,
+        "recovery_rate": tally.recovery_rate,
+        "money": tally.money,
+        "value_at_risk": tally.value_at_risk,
+        "value_recovered_share": tally.value_recovered_share,
+        "presentments": tally.presentments,
+        "into_outage": tally.into_outage,
+        "notifications": tally.notifications,
+        "net_value": tally.net_value,
+        "mean_hours_after_clear": tally.mean_hours_after_clear,
+    }
+
+
 def downtime_events(dataset):
     return [
         e
@@ -135,6 +174,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=int, default=20)
     parser.add_argument("--n", type=int, default=500)
+    add_json_argument(parser)
     args = parser.parse_args()
 
     seeds = list(range(1, args.seeds + 1))
@@ -142,57 +182,29 @@ def main() -> None:
 
     tallies = {name: Tally() for name in ("legacy_fixed", "sequencer", "oracle_ceiling")}
     no_health = Tally()
-    lead_24 = Tally()
     lead_0 = Tally()
+    discount_tallies = {rate: Tally() for rate in DISCOUNT_RATES}
     total_failures = 0
     outage_lengths: list[float] = []
-
-    for seed in seeds:
-        dataset = generate_dataset(n_customers=args.n, seed=seed)
-        outages = outage_book_for(dataset)
-        events = downtime_events(dataset)
-        total_failures += len(dataset.failure_events)
-        if not events:
-            continue
-
-        policies = {
-            "legacy_fixed": LegacyFixedSchedule(),
-            "sequencer": SequencerPolicy(),
-            "oracle_ceiling": OraclePolicy.for_dataset(dataset),
-        }
-        blind = SequencerPolicy(
-            SequencerConfig(use_bank_health=False), name="no_bank_health"
-        )
-        prompt = SequencerPolicy(
-            SequencerConfig(lead_time_hours=0), name="lead_0h"
-        )
-
-        for event in events:
-            bank_id = dataset.customer(event.customer_id).bank_id
-            at = datetime.combine(
-                event.original_debit_date, rules.DEFAULT_PRESENTMENT_TIME
-            )
-            span = outages.outage_covering(bank_id, at)
-            if span is not None:
-                outage_lengths.append((span[1] - span[0]).total_seconds() / 3600.0)
-
-            for name, policy in policies.items():
-                tallies[name].add(play(policy, dataset, event, seed), outages, bank_id)
-            no_health.add(play(blind, dataset, event, seed), outages, bank_id)
-            lead_24.add(play(policies["sequencer"], dataset, event, seed), outages, bank_id)
-            lead_0.add(
-                play(prompt, dataset, event, seed, lead_time_days=0), outages, bank_id
-            )
-
     # Structural facts the conclusions below depend on, measured rather than
     # asserted: how many outages survive long enough to still be live at the
     # next presentment window, and how large the correlated evidence gets.
     spans_two = total_outages = 0
     largest_cluster = 0
+
+    # ONE dataset per seed, shared by every arm below. Building a 500-customer
+    # book means simulating 500 daily balance series, and that is two thirds of
+    # this script's runtime; an earlier version rebuilt the same book five times
+    # per seed - here, in the structural pass, and once per discount rate. The
+    # generator is a pure function of (n_customers, seed), so those five copies
+    # were always identical and nothing below moves by dropping four of them.
     for seed in seeds:
         dataset = generate_dataset(n_customers=args.n, seed=seed)
         outages = outage_book_for(dataset)
-        for bank_id, spans in outages.intervals.items():
+        events = downtime_events(dataset)
+        total_failures += len(dataset.failure_events)
+
+        for spans in outages.intervals.values():
             for start, end in spans:
                 total_outages += 1
                 covered = 0
@@ -210,6 +222,55 @@ def main() -> None:
             clusters[key] = clusters.get(key, 0) + 1
         if clusters:
             largest_cluster = max(largest_cluster, max(clusters.values()))
+
+        if not events:
+            continue
+
+        policies = {
+            "legacy_fixed": LegacyFixedSchedule(),
+            "sequencer": SequencerPolicy(),
+            "oracle_ceiling": OraclePolicy.for_dataset(dataset),
+        }
+        blind = SequencerPolicy(
+            SequencerConfig(use_bank_health=False), name="no_bank_health"
+        )
+        prompt = SequencerPolicy(
+            SequencerConfig(lead_time_hours=0), name="lead_0h"
+        )
+        # One policy per discount rate, rebuilt per seed exactly as the arms
+        # above are, so each rate accumulates its bank-health evidence over the
+        # same events in the same order it did when this sweep ran separately.
+        discounted = {
+            rate: SequencerPolicy(
+                SequencerConfig(daily_discount=rate), name=f"discount_{rate}"
+            )
+            for rate in DISCOUNT_RATES
+        }
+
+        for event in events:
+            bank_id = dataset.customer(event.customer_id).bank_id
+            at = datetime.combine(
+                event.original_debit_date, rules.DEFAULT_PRESENTMENT_TIME
+            )
+            span = outages.outage_covering(bank_id, at)
+            if span is not None:
+                outage_lengths.append((span[1] - span[0]).total_seconds() / 3600.0)
+
+            for name, policy in policies.items():
+                tallies[name].add(play(policy, dataset, event, seed), outages, bank_id)
+            no_health.add(play(blind, dataset, event, seed), outages, bank_id)
+            lead_0.add(
+                play(prompt, dataset, event, seed, lead_time_days=0), outages, bank_id
+            )
+            for rate, policy in discounted.items():
+                discount_tallies[rate].add(
+                    play(policy, dataset, event, seed), outages, bank_id
+                )
+
+    # The 24h arm IS the headline sequencer - same policy, same lead time, same
+    # events. It used to be replayed into a tally of its own, which doubled the
+    # sequencer's share of the episode loop to recompute a number already held.
+    lead_24 = tallies["sequencer"]
     rules_max = _max_outage_hours()
 
     n = tallies["legacy_fixed"].episodes
@@ -293,23 +354,18 @@ def main() -> None:
     print("  DecisionEngine.daily_discount prices that and defaults to 0.0, so")
     print("  nothing above depends on it. Measured on this class:\n")
     print(f"  {'discount/day':<16}{'recovery':>10}{'mean days after clear':>25}")
-    for rate in (0.0, 0.01, 0.03):
-        tally = Tally()
-        for seed in seeds:
-            dataset = generate_dataset(n_customers=args.n, seed=seed)
-            outages = outage_book_for(dataset)
-            policy = SequencerPolicy(
-                SequencerConfig(daily_discount=rate), name=f"discount_{rate}"
-            )
-            for event in downtime_events(dataset):
-                bank_id = dataset.customer(event.customer_id).bank_id
-                tally.add(play(policy, dataset, event, seed), outages, bank_id)
+    for rate in DISCOUNT_RATES:
+        tally = discount_tallies[rate]
         days = [h / 24.0 for h in tally.hours_after_clear if h == h]
         mean_days = sum(days) / len(days) if days else float("nan")
         marker = "   <- as specified" if rate == 0.0 else ""
         print(f"  {rate:<16.2f}{tally.recovery_rate:>10.1%}{mean_days:>25.1f}{marker}")
     print()
-    print("  A 1%/day preference roughly halves the delay at no cost in recovery.")
+    zero, one = discount_tallies[0.0], discount_tallies[0.01]
+    print(
+        f"  A 1%/day preference roughly halves the delay, for "
+        f"{(one.recovery_rate - zero.recovery_rate) * 100:+.1f} points of recovery."
+    )
     print("  It is left OFF because turning it on would change every class-1")
     print("  number already reported, and that is a call for the write-up rather")
     print("  than a silent edit - but it is the highest-value change on the list.")
@@ -345,6 +401,63 @@ def main() -> None:
         print("  real-time bank health monitoring WORTHLESS for scheduling")
         print("  compliant retries - the one thing a payments company would")
         print("  instinctively build first for this failure mode.")
+
+    # Written from the very tallies the tables above were rendered from, so the
+    # file cannot disagree with the report. See scripts/_emit.py.
+    emit(
+        args.json_path,
+        script="run_downtime.py",
+        seeds=args.seeds,
+        n=args.n,
+        payload={
+            "downtime_failures": n,
+            "total_failures": total_failures,
+            "downtime_share_pooled": n / total_failures if total_failures else 0.0,
+            "median_outage_hours_at_failure": (
+                sorted(outage_lengths)[len(outage_lengths) // 2]
+                if outage_lengths
+                else None
+            ),
+            "max_outage_hours": rules_max,
+            "notice_hours": rules.PRE_DEBIT_NOTICE_HOURS,
+            "outages_spanning_two_windows": spans_two,
+            "total_outages": total_outages,
+            "largest_same_bank_same_day_cluster": largest_cluster,
+            "policies": {
+                name: _tally_payload(t)
+                for name, t in (
+                    ("legacy_fixed", tallies["legacy_fixed"]),
+                    ("sequencer", tallies["sequencer"]),
+                    ("oracle_ceiling", tallies["oracle_ceiling"]),
+                    ("no_bank_health", no_health),
+                )
+            },
+            "bank_health_net_value_delta": no_health.net_value - agent.net_value,
+            "discount_sweep": {
+                f"{rate}": {
+                    "recovery_rate": discount_tallies[rate].recovery_rate,
+                    "mean_days_after_clear": _mean_days_after_clear(
+                        discount_tallies[rate]
+                    ),
+                }
+                for rate in DISCOUNT_RATES
+            },
+            "lead_time": {
+                "24h": {
+                    "recovery_rate": lead_24.recovery_rate,
+                    "into_outage": lead_24.into_outage,
+                    "money": lead_24.money,
+                },
+                "0h": {
+                    "recovery_rate": lead_0.recovery_rate,
+                    "into_outage": lead_0.into_outage,
+                    "money": lead_0.money,
+                },
+                "gap_money": gap_money,
+                "gap_recovery_points": gap_rate * 100,
+            },
+        },
+    )
 
     print(f"\nelapsed {time.time() - started:.0f}s")
 

@@ -106,6 +106,11 @@ class Producer:
     script: str | None = None
     args: tuple[str, ...] = ()
     call: Callable[[], dict[str, Any]] | None = None
+    # Extra directories whose *.py files can move this producer's numbers.
+    # Everything reads src/, so that is hashed unconditionally; this is for a
+    # producer that reads somewhere else. The `tests` producer counts tests, so
+    # its answer changes when tests/ changes and nothing else would notice.
+    extra_sources: tuple[str, ...] = ()
 
     def command(self, out: Path) -> list[str]:
         return [
@@ -326,6 +331,7 @@ PRODUCERS: dict[str, Producer] = {
         "tests",
         "how many tests the suite actually has",
         call=test_counts,
+        extra_sources=("tests",),
     ),
 }
 
@@ -1030,13 +1036,24 @@ def fingerprint(producer: Producer | None = None) -> str:
 
     What is hashed: everything under ``src`` (any of it can move any number),
     the producing script itself, and ``_emit.py`` which shapes its payload. For
-    the library producer it is the source of the producing function instead.
-    Documents are deliberately NOT hashed - a producer does not read them, so
-    rewording a paragraph must not force a re-run.
+    a library producer it is the source of the producing function instead, plus
+    anything named in ``extra_sources``. Documents are deliberately NOT hashed -
+    a producer does not read them, so rewording a paragraph must not force a
+    re-run.
+
+    ``extra_sources`` exists because the first version of this got it wrong in
+    exactly the way the whole tool is meant to prevent. The ``tests`` producer
+    counts the suite, so its answer moves whenever a test is added or removed -
+    but tests/ was not hashed, so the cache key did not move with it and a
+    stale count would have been served as a passing claim. A checker that
+    cannot invalidate its own cache is a checker that certifies whatever it
+    happened to measure first.
     """
     digest = hashlib.sha256()
     digest.update(f"{SEEDS}x{N_CUSTOMERS}".encode())
     _hash_sources(digest, (ROOT / "src").rglob("*.py"))
+    for folder in getattr(producer, "extra_sources", ()) if producer else ():
+        _hash_sources(digest, (ROOT / folder).rglob("*.py"))
     if producer is None:
         _hash_sources(digest, (ROOT / "scripts").glob("*.py"))
     elif producer.script is not None:

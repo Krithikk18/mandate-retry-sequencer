@@ -8,8 +8,12 @@ across seeds therefore does two wrong things at once: it skips evidence, because
 its dedup set has already seen the id, and it prices banks with evidence drawn
 from somebody else's issuer.
 
-**Every test in this file fails on the code as it stood before the guard was
-added**, which is the only thing that makes them worth having. The defect was
+**Six of the eight tests in this file fail on the code as it stood before the
+guard was added**, which is the only thing that makes them worth having - and
+the two load-bearing ones fail with ``DID NOT RAISE ValueError`` rather than on
+a missing import, so the failure is about the defect and not about the new API.
+The other two pass before and after, correctly: they assert properties that
+were already true and must stay true. The defect was
 live in ``scripts/run_ablations.py``, where one policy per variant scored all
 twenty seeds; 71% of failure episodes never contributed their evidence, and the
 README's ablation verdicts were computed on top of that.
@@ -19,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.sequencer import SequencerConfig, SequencerPolicy, customer_identity
+from agent.sequencer import SequencerConfig, SequencerPolicy
 from evaluation.harness import compare
 from evaluation.simulator import run_episode
 from generator.generate import generate_dataset
@@ -28,6 +32,28 @@ from policy.oracle_policy import OraclePolicy
 
 SEEDS = (1, 2)
 N = 120
+
+# Deliberately inlined rather than imported from agent.sequencer, which exports
+# the identical tuple as IDENTITY_FIELDS. The point of this file is that it
+# FAILS on the code as it stood before the guard existed, and an import of a
+# symbol the fix introduced makes it fail at collection with an ImportError -
+# which is what a test asserting nothing would also do. Defined locally, the
+# module imports cleanly against the pre-fix source and the two load-bearing
+# tests below fail with "DID NOT RAISE ValueError", which is a statement about
+# the bug rather than about the API.
+IDENTITY_FIELDS = (
+    "subscription_amount",
+    "rail",
+    "debit_day_of_month",
+    "tenure_months",
+    "monthly_ltv",
+    "bank_id",
+)
+
+
+def customer_identity(customer) -> tuple:
+    """The public signature of one customer. Mirrors agent.sequencer's copy."""
+    return tuple(getattr(customer, field) for field in IDENTITY_FIELDS)
 
 
 def play(policy, dataset, event, seed):

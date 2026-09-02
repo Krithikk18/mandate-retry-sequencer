@@ -99,19 +99,31 @@ def test_the_router_checks_its_own_consistency():
     router._check_registry_is_consistent()
 
 
-def test_five_classes_are_implemented_and_one_is_still_a_stub():
-    """The stub must not be mistaken for a model."""
-    assert router.implemented_classes() == {
-        rules.FAILURE_CLASS_INSUFFICIENT_FUNDS,
-        rules.FAILURE_CLASS_EXPIRED_CARD,
-        rules.FAILURE_CLASS_OPTED_OUT,
-        rules.FAILURE_CLASS_DOWNTIME,
-        rules.FAILURE_CLASS_AFA_INCOMPLETE,
-    }
-    for failure_class in (rules.FAILURE_CLASS_AMBIGUOUS,):
+def test_all_six_classes_are_implemented():
+    """The taxonomy is closed. There is no stub left.
+
+    Class 6 was the last one, and it closed the set in an unusual way: it did
+    not add a sixth success model, it added a fitted POSTERIOR over the other
+    five and mixes them. See classes/ambiguous.py.
+    """
+    assert router.implemented_classes() == rules.FAILURE_CLASSES
+    for failure_class in sorted(rules.FAILURE_CLASSES):
         handler = router.handler_for_class(failure_class)
-        assert handler.implemented is False
-        assert "NOT IMPLEMENTED" in handler.rationale
+        assert handler.implemented is True, failure_class
+        assert "NOT IMPLEMENTED" not in handler.rationale, failure_class
+
+
+def test_the_ambiguous_handler_mixes_the_other_classes_and_never_nudges():
+    """A 05 hides the QUESTION, so the response is a mixture, not a model.
+
+    And no NUDGE: you cannot ask a customer to fix a decline nobody explained.
+    """
+    handler = router.route_return_code(rules.RETURN_CODE_DO_NOT_HONOUR)
+    assert handler.failure_class == rules.FAILURE_CLASS_AMBIGUOUS
+    assert handler.implemented is True
+    actions = handler.allowed_actions(None)
+    assert "RETRY" in actions and "NUDGE" not in actions
+    assert set(actions) == {"RETRY", "WAIT", "HOLD", "CANCEL"}
 
 
 def test_downtime_dispatches_to_the_real_handler_not_the_old_stub():

@@ -89,13 +89,26 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--seeds", type=int, default=20)
     parser.add_argument("--n", type=int, default=500)
+    parser.add_argument(
+        "--share", type=float, default=0.0,
+        help=(
+            "class-6 masking share. 0.0 is the book every documented number "
+            "was measured on; raise it to price a world where issuers hide "
+            "their decline reasons."
+        ),
+    )
     add_json_argument(parser)
     args = parser.parse_args()
 
     seeds = list(range(1, args.seeds + 1))
     started = time.time()
 
-    datasets = {s: generate_dataset(n_customers=args.n, seed=s) for s in seeds}
+    datasets = {
+        s: generate_dataset(
+            n_customers=args.n, seed=s, ambiguity_share=args.share
+        )
+        for s in seeds
+    }
     report = compare(
         [LegacyFixedSchedule(), SequencerPolicy.for_dataset, OraclePolicy.for_dataset],
         seeds=seeds,
@@ -114,7 +127,8 @@ def main() -> None:
 
     print(f"{RULE}\nMEASURED MONEY RECOVERED\n{RULE}")
     print(f"{args.seeds} seeds x {args.n} customers   "
-          f"{total_failures:,} failed mandates in total")
+          f"{total_failures:,} failed mandates in total"
+          + (f"   class-6 masking share {args.share}" if args.share else ""))
     print("mean across seeds, [min .. max] in brackets\n")
 
     header = f"  {'':<22}" + "".join(f"{p:>26}" for p in (LEGACY, AGENT, CEILING))
@@ -244,6 +258,7 @@ def main() -> None:
         seeds=args.seeds,
         n=args.n,
         payload={
+            "ambiguity_share": args.share,
             "total_failures": total_failures,
             "policies": {
                 policy: {

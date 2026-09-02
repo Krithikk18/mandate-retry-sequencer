@@ -69,7 +69,15 @@ import numpy as np
 import pandas as pd
 
 from . import rules
-from .afa import MAX_USEFUL_NUDGES, otp_completed
+from .afa import MAX_USEFUL_NUDGES, otp_completed  # noqa: F401  (re-exported)
+from .ambiguous import (
+    AmbiguityConfig,
+    CAUSE_TRANSIENT_GLITCH,
+    glitch_clears_on,
+    in_glitch,
+    is_masked,
+    risk_blocked_from,
+)
 from .balance import counterfactual_paths
 from .banks import BankOutageBook
 from .models import Customer
@@ -144,6 +152,38 @@ def mandate_is_alive(customer: Customer, on: date) -> bool:
     return customer.mandate_dead_from is None or on < customer.mandate_dead_from
 
 
+def _mask(
+    customer: Customer,
+    attempt_date: date,
+    ambiguity: AmbiguityConfig,
+    resolved: tuple[bool, str | None, str],
+) -> tuple[bool, str | None, str]:
+    """Degrade the RETURN CODE of an already-resolved failure, never its class.
+
+    **Masking is a transform applied AFTER resolution, not a rung on the
+    ladder above.** That ordering is the design decision the whole class rests
+    on. Had it gone in as another branch - "if the issuer masks, return 05" -
+    the real cause would never have been computed and the true failure class
+    would be destroyed at the moment of creation. The one interesting question
+    about this class is whether the agent's posterior over causes was RIGHT,
+    and that question is unanswerable without the answer being recorded.
+
+    So: resolve normally, then rewrite the code the agent sees. The truth stays
+    in ``FailureEvent.failure_class``; only the agent-visible channel is
+    degraded. A masked balance failure carries ``return_code == "05"`` and
+    ``failure_class == "insufficient_funds"``, and a test pins exactly that.
+
+    Successes are never masked - an issuer does not decline a transaction it
+    approved.
+    """
+    succeeded, return_code, failure_class = resolved
+    if succeeded or not ambiguity.enabled:
+        return resolved
+    if not is_masked(customer, attempt_date, ambiguity):
+        return resolved
+    return False, rules.RETURN_CODE_DO_NOT_HONOUR, failure_class
+
+
 def resolve_presentment(
     customer: Customer,
     attempt_date: date,
@@ -151,6 +191,7 @@ def resolve_presentment(
     balance_series: pd.Series,
     outages: BankOutageBook | None = None,
     nudges: int = 0,
+    ambiguity: AmbiguityConfig | None = None,
 ) -> tuple[bool, str | None, str]:
     """Present the debit and report (succeeded, return_code, failure_class).
 
@@ -183,28 +224,97 @@ def resolve_presentment(
     ``nudges`` is how many out-of-band nudges preceded this presentment. It is
     the ONLY policy-dependent input, and it only ever moves gate 3.
     """
+    ambiguity = ambiguity or AmbiguityConfig()
+
+    # 0. A SILENT RISK BLOCK outranks everything, including a dead credential:
+    #    the issuer refuses the transaction before it looks at anything else,
+    #    and says nothing about why. Native 05 - there is no unmasked code this
+    #    could have carried, which is what makes it a new cause rather than a
+    #    masked one.
+    if ambiguity.enabled:
+        blocked_from = risk_blocked_from(customer, ambiguity)
+        if blocked_from is not None and attempt_date >= blocked_from:
+            return (
+                False,
+                rules.RETURN_CODE_DO_NOT_HONOUR,
+                rules.FAILURE_CLASS_AMBIGUOUS,
+            )
+
     if customer.mandate_dead_from is not None and attempt_date >= customer.mandate_dead_from:
         dead_class = customer.mandate_dead_class or rules.FAILURE_CLASS_AMBIGUOUS
-        return False, _DEAD_CLASS_RETURN_CODES[dead_class], dead_class
+        return _mask(
+            customer, attempt_date, ambiguity,
+            (False, _DEAD_CLASS_RETURN_CODES[dead_class], dead_class),
+        )
 
     if outages is not None and outages.is_down(
         customer.bank_id, datetime.combine(attempt_date, rules.DEFAULT_PRESENTMENT_TIME)
     ):
-        return False, rules.RETURN_CODE_DOWNTIME, rules.FAILURE_CLASS_DOWNTIME
+        return _mask(
+            customer, attempt_date, ambiguity,
+            (False, rules.RETURN_CODE_DOWNTIME, rules.FAILURE_CLASS_DOWNTIME),
+        )
 
-    if not otp_completed(customer, attempt_date, nudges):
+    # 2b. A TRANSIENT ISSUER GLITCH: smaller than a bank outage, per mandate
+    #     rather than per issuer-hour, and over within a day or three. Native
+    #     05, and the reason one cautious retry is worth anything at all.
+    if ambiguity.enabled and in_glitch(customer, attempt_date, ambiguity):
         return (
             False,
-            rules.RETURN_CODE_AFA_INCOMPLETE,
-            rules.FAILURE_CLASS_AFA_INCOMPLETE,
+            rules.RETURN_CODE_DO_NOT_HONOUR,
+            rules.FAILURE_CLASS_AMBIGUOUS,
+        )
+
+    if not otp_completed(customer, attempt_date, nudges):
+        return _mask(
+            customer, attempt_date, ambiguity,
+            (
+                False,
+                rules.RETURN_CODE_AFA_INCOMPLETE,
+                rules.FAILURE_CLASS_AFA_INCOMPLETE,
+            ),
         )
 
     cleared = would_succeed(customer, attempt_date, amount, balance_series)
-    return (
-        cleared,
-        None if cleared else rules.RETURN_CODE_INSUFFICIENT_FUNDS,
-        rules.FAILURE_CLASS_INSUFFICIENT_FUNDS,
+    return _mask(
+        customer, attempt_date, ambiguity,
+        (
+            cleared,
+            None if cleared else rules.RETURN_CODE_INSUFFICIENT_FUNDS,
+            rules.FAILURE_CLASS_INSUFFICIENT_FUNDS,
+        ),
     )
+
+
+def _ambiguous_gates_open(
+    customer: Customer, day: date, ambiguity: AmbiguityConfig | None
+) -> bool:
+    """True unless a silent risk block or a transient glitch blocks ``day``.
+
+    The two class-6 causes that have no unmasked counterpart, and they behave
+    completely differently in time - which is the whole reason the mixture
+    handler cannot treat every 05 alike:
+
+        issuer_risk_block        permanent. NO date ever clears. A schedule
+                                 that keeps presenting is burning attempts and
+                                 cancel-capable notices against a wall, and
+                                 nothing in the return code will ever say so.
+        transient_issuer_glitch  over within 24-72h. A date after it clears,
+                                 a date before it does not. This is the cause
+                                 that makes one cautious retry correct.
+
+    Masked causes are deliberately NOT handled here: a masked 04 is still a
+    balance failure and is answered by the balance term, a masked 1A by the
+    authentication term. Masking degrades the code, never the underlying
+    truth, so the truth functions need no branch for it.
+    """
+    ambiguity = ambiguity or AmbiguityConfig()
+    if not ambiguity.enabled:
+        return True
+    blocked_from = risk_blocked_from(customer, ambiguity)
+    if blocked_from is not None and day >= blocked_from:
+        return False
+    return not in_glitch(customer, day, ambiguity)
 
 
 def presentment_succeeds(
@@ -213,6 +323,7 @@ def presentment_succeeds(
     amount: float,
     balance_series: pd.Series,
     nudges: int = 0,
+    ambiguity: AmbiguityConfig | None = None,
 ) -> bool:
     """Ground truth for a real presentment: every gate must be open.
 
@@ -228,7 +339,8 @@ def presentment_succeeds(
     the caller has it.
     """
     return resolve_presentment(
-        customer, attempt_date, amount, balance_series, nudges=nudges
+        customer, attempt_date, amount, balance_series, nudges=nudges,
+        ambiguity=ambiguity,
     )[0]
 
 
@@ -239,6 +351,7 @@ def success_curve(
     start: date | None = None,
     end: date | None = None,
     nudges: int = 0,
+    ambiguity: AmbiguityConfig | None = None,
 ) -> pd.Series:
     """The full counterfactual surface: would a debit have cleared on each day?
 
@@ -262,6 +375,16 @@ def success_curve(
     curve = window >= amount
     if customer.mandate_dead_from is not None:
         curve &= window.index < pd.Timestamp(customer.mandate_dead_from)
+    if ambiguity is not None and ambiguity.enabled:
+        # Walked only when the class is switched on, so the default path costs
+        # nothing and stays byte-identical to the build before class 6.
+        curve &= pd.Series(
+            [
+                _ambiguous_gates_open(customer, stamp.date(), ambiguity)
+                for stamp in window.index
+            ],
+            index=window.index,
+        )
     if customer.requires_otp:
         # Only walked for OTP-gated mandates, which are ~3% of the book. Below
         # the Sec 8(a) ceiling there is nothing to complete and the term is
@@ -280,6 +403,7 @@ def first_success_date(
     after: date,
     horizon_days: int = 60,
     nudges: int = 0,
+    ambiguity: AmbiguityConfig | None = None,
 ) -> date | None:
     """Earliest date strictly after ``after`` on which a debit would clear.
 
@@ -299,7 +423,8 @@ def first_success_date(
     if start > end:
         return None
     curve = success_curve(
-        customer, balance_series, amount, start=start, end=end, nudges=nudges
+        customer, balance_series, amount, start=start, end=end, nudges=nudges,
+        ambiguity=ambiguity,
     )
     hits = curve[curve]
     if hits.empty:
@@ -344,6 +469,7 @@ def would_succeed_at(
     balance_series: pd.Series,
     outages: BankOutageBook,
     nudges: int = 0,
+    ambiguity: AmbiguityConfig | None = None,
 ) -> bool:
     """Ground truth for a presentment at a specific HOUR.
 
@@ -367,6 +493,8 @@ def would_succeed_at(
     than trusting the AND to fall out.
     """
     if not outages.is_up(customer.bank_id, at):
+        return False
+    if not _ambiguous_gates_open(customer, at.date(), ambiguity):
         return False
     return presentment_succeeds(
         customer, at.date(), amount, balance_series, nudges=nudges

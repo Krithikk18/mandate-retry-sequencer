@@ -36,6 +36,7 @@ from functools import lru_cache
 from typing import Callable, Iterable, Sequence
 
 from generator.afa import MAX_USEFUL_NUDGES
+from generator.ambiguous import AmbiguityConfig
 from generator.generate import Dataset, generate_dataset
 from generator.models import Customer
 from generator.optout import DEFAULT_IRRITATION_DIRECTION, IrritationDirection
@@ -105,6 +106,27 @@ class PolicyReport:
     episodes: list[EpisodeResult] = field(default_factory=list, repr=False)
 
 
+def _ambiguity_for(dataset: Dataset) -> AmbiguityConfig | None:
+    """Rebuild the class-6 config a dataset was generated with.
+
+    Read back off ``dataset.meta`` rather than threaded by the caller, for the
+    same reason ``outage_book_for`` rebuilds the outage book from the seed and
+    the window: a scorer that has to be TOLD what world it is in will
+    eventually be told wrong. None when class 6 is off, so the default path is
+    exactly what it was.
+    """
+    from datetime import date as _date
+
+    share = float(dataset.meta.get("ambiguity_share", 0.0))
+    if share <= 0.0:
+        return None
+    return AmbiguityConfig(
+        share=share,
+        seed=dataset.seed,
+        window_start=_date.fromisoformat(dataset.meta["series_start"]),
+    )
+
+
 def evaluate(
     policy: Policy,
     dataset: Dataset,
@@ -117,6 +139,11 @@ def evaluate(
     strict_compliance: bool = True,
 ) -> PolicyReport:
     """Run ``policy`` over every failure event in ``dataset``."""
+    # Class 6: score in the world the data was BUILT in. Derived from the
+    # dataset rather than passed in, so every caller gets it right by default
+    # and none of them has to remember. None when class 6 is off, which is the
+    # default and leaves every existing number untouched.
+    ambiguity = _ambiguity_for(dataset)
     episodes = [
         run_episode(
             policy,
@@ -129,6 +156,7 @@ def evaluate(
             lead_time_days=lead_time_days,
             notifications_can_cancel=notifications_can_cancel,
             strict_compliance=strict_compliance,
+            ambiguity=ambiguity,
         )
         for event in dataset.failure_events
     ]
@@ -170,6 +198,7 @@ def evaluate(
                     after=event.original_debit_date,
                     horizon_days=RECOVERY_HORIZON_DAYS,
                     nudges=MAX_USEFUL_NUDGES,
+                    ambiguity=ambiguity,
                 )
                 if salvageable is None:
                     correctly_cancelled += 1

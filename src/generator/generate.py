@@ -37,6 +37,7 @@ from .models import (
     FailureEvent,
     PaymentHistoryRecord,
 )
+from .ambiguous import AmbiguityConfig
 from .oracle import (
     days_to_next_salary,
     first_success_date,
@@ -140,6 +141,7 @@ def _resolve_attempt(
     day: date,
     balance_series: pd.Series,
     outages: BankOutageBook | None = None,
+    ambiguity: AmbiguityConfig | None = None,
 ) -> tuple[bool, str | None, str]:
     """Present the debit and report (succeeded, return_code, failure_class).
 
@@ -160,6 +162,12 @@ def _resolve_attempt(
        dragged the payday model around.
     4. Otherwise the BALANCE decides: 04, or success.
 
+    And then, OUTSIDE the ladder entirely, class 6: if the issuer masks its
+    decline reasons, the RETURN CODE is rewritten to 05 while the resolved
+    failure class is left alone. That is a transform over the answer, not a
+    fifth rung - see ``oracle._mask`` for why the distinction is the whole
+    class. It is inert unless ``ambiguity_share`` is non-zero.
+
     The return code is the only channel the agent gets. Everything behind it -
     the outage book, the balance series, the dead-mandate fields, the
     responsiveness trait - is hidden.
@@ -176,6 +184,7 @@ def _resolve_attempt(
         balance_series,
         outages=outages,
         nudges=0,
+        ambiguity=ambiguity,
     )
 
 
@@ -338,12 +347,20 @@ def generate_dataset(
     n_customers: int = 500,
     seed: int = 42,
     as_of: date = DEFAULT_AS_OF,
+    ambiguity_share: float = 0.0,
 ) -> Dataset:
     """Generate a full synthetic book of subscription mandates.
 
     The failure rate is not imposed. Every attempt is resolved against the
     customer's simulated balance, so whatever rate comes out is what the
     income and spending process actually produces.
+
+    ``ambiguity_share`` scales how much of the book's decline traffic comes
+    back as an unexplained ``05`` - failure class 6. **It defaults to 0.0 and
+    that default is load-bearing.** At zero this generator is byte-identical to
+    the build before class 6 existed, so every figure already measured and
+    pinned still reproduces; a test asserts exactly that on seed 42. The same
+    convention ``DecisionEngine.daily_discount`` follows, for the same reason.
     """
     if n_customers < 1:
         raise ValueError("n_customers must be >= 1")
@@ -353,6 +370,12 @@ def generate_dataset(
 
     series_start = as_of - timedelta(days=HISTORY_DAYS)
     series_days = HISTORY_DAYS + FUTURE_HORIZON_DAYS
+
+    # Class 6. Inert at the default; ``window_start`` anchors silent risk
+    # blocks to the observed history rather than to a magic constant.
+    ambiguity = AmbiguityConfig(
+        share=ambiguity_share, seed=seed, window_start=series_start
+    )
 
     # Bank outages are shared truth, not a per-customer field. The book is a
     # pure function of (seed, window), so any caller - including one that only
@@ -383,7 +406,9 @@ def generate_dataset(
 
         # closed cycles: original attempt plus the legacy +2/+4/+7 retries
         for debit_date in past_cycles:
-            ok, code, _ = _resolve_attempt(customer, debit_date, series, outages)
+            ok, code, _ = _resolve_attempt(
+                customer, debit_date, series, outages, ambiguity
+            )
             payment_history.append(_record(customer, debit_date, ok, code))
             historical_originals += 1
             if ok:
@@ -392,7 +417,7 @@ def generate_dataset(
             for offset in LEGACY_RETRY_OFFSETS:
                 retry_date = debit_date + timedelta(days=offset)
                 retry_ok, retry_code, _ = _resolve_attempt(
-                    customer, retry_date, series, outages
+                    customer, retry_date, series, outages, ambiguity
                 )
                 payment_history.append(_record(customer, retry_date, retry_ok, retry_code))
                 if retry_ok:
@@ -400,7 +425,7 @@ def generate_dataset(
 
         # the open cycle: the original attempt only
         ok, code, failure_class = _resolve_attempt(
-            customer, current_cycle, series, outages
+            customer, current_cycle, series, outages, ambiguity
         )
         payment_history.append(_record(customer, current_cycle, ok, code))
         if not ok:
@@ -472,6 +497,30 @@ def generate_dataset(
         ),
         **diagnostics,
     }
+
+    # Added ONLY when class 6 is switched on. A key that is always present
+    # would change meta.json on the default path and break the byte-identity
+    # this flag exists to preserve - the point of an off-by-default mechanism
+    # is that switching it off leaves no trace.
+    if ambiguity.enabled:
+        masked = [
+            e for e in failure_events
+            if e.return_code == rules.RETURN_CODE_DO_NOT_HONOUR
+        ]
+        meta["ambiguity_share"] = ambiguity_share
+        meta["masked_share"] = len(masked) / len(failure_events) if failure_events else 0.0
+        meta["masked_native_share"] = (
+            sum(1 for e in masked if e.failure_class == rules.FAILURE_CLASS_AMBIGUOUS)
+            / len(masked)
+            if masked
+            else 0.0
+        )
+        # The true classes hiding behind the 05s, which is the quantity the
+        # agent's fitted posterior is graded against.
+        behind: dict[str, int] = {}
+        for event in masked:
+            behind[event.failure_class] = behind.get(event.failure_class, 0) + 1
+        meta["masked_true_classes"] = behind
 
     return Dataset(
         customers=customers,

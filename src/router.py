@@ -8,7 +8,8 @@ Dispatch is on the RETURN CODE, not on any label the generator attached, so
 this is the same thing a production system would do with an acquirer response.
 An unmapped or missing code routes to the ambiguous handler rather than
 raising: real acquirers emit codes nobody documented, and "unknown" is itself a
-class with a defined cautious response.
+class with a defined response - a fitted posterior over the other five, which
+is what makes that fallback a model rather than a shrug.
 
 A consistency check runs at import: every class in ``rules.NEVER_RETRY_CLASSES``
 must have a handler whose action set excludes RETRY. Keeping that invariant in
@@ -21,12 +22,12 @@ from generator import rules
 from generator.models import AgentFailureEvent, FailureEvent
 
 from classes.afa_incomplete import AfaIncompleteHandler
+from classes.ambiguous import AmbiguousHandler
 from classes.base import FailureClassHandler
 from classes.downtime import DowntimeHandler
 from classes.expired_card import ExpiredCardHandler
 from classes.insufficient_funds import InsufficientFundsHandler
 from classes.opted_out import OptedOutHandler
-from classes.stubs import AmbiguousHandler
 
 _HANDLERS: dict[str, FailureClassHandler] = {
     rules.FAILURE_CLASS_INSUFFICIENT_FUNDS: InsufficientFundsHandler(),

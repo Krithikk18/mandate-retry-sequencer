@@ -15,6 +15,7 @@ result honestly is worth more than claiming one that is not there.
     no_afa_nudge     NUDGE off for AFA (on by default - the opposite switch)
     tier1_payday     tier 1 (day-of-month frequency) instead of tier 2
     no_bank_health   no cross-customer pooling of bank outage evidence
+    no_masking_posterior  class 6 priced as if every 05 were a balance failure
     irritation_build the opposite irritation direction
 
 ``with_nudge`` and ``no_afa_nudge`` are the same action measured on two
@@ -97,6 +98,7 @@ VARIANTS: dict[str, dict] = {
     "no_afa_nudge": {"use_afa_nudge": False},
     "tier1_payday": {"payday_tier": 1},
     "no_bank_health": {"use_bank_health": False},
+    "no_masking_posterior": {"use_masking_posterior": False},
     "irritation_build": {"irritation_direction": "build"},
 }
 
@@ -133,6 +135,15 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, default=20)
     parser.add_argument("--n", type=int, default=500)
     parser.add_argument("--no-oracle-metrics", action="store_true")
+    parser.add_argument(
+        "--ambiguity-share", type=float, default=0.0,
+        help=(
+            "class-6 masking share. 0.0 (the default) is the book every "
+            "documented ablation number was measured on; no_masking_posterior "
+            "necessarily ties on every seed there, because there are no 05s "
+            "for it to act on. Raise it to make that row mean something."
+        ),
+    )
     add_json_argument(parser)
     args = parser.parse_args()
 
@@ -141,7 +152,12 @@ def main() -> None:
 
     print(f"{RULE}\nABLATIONS\n{RULE}")
     print(f"{args.seeds} seeds x {args.n} customers\n")
-    datasets = {s: generate_dataset(n_customers=args.n, seed=s) for s in seeds}
+    datasets = {
+        s: generate_dataset(
+            n_customers=args.n, seed=s, ambiguity_share=args.ambiguity_share
+        )
+        for s in seeds
+    }
 
     # One policy PER SEED, not one per variant. SequencerPolicy carries a
     # bank-health model keyed on customer id, and customer ids denote a
@@ -325,6 +341,7 @@ def main() -> None:
                 if name in report.summary
             },
             "verdicts": verdicts,
+            "ambiguity_share": args.ambiguity_share,
             "headline": {
                 "legacy_floor": floor,
                 "sequencer": agent,

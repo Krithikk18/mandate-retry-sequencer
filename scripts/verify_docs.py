@@ -312,6 +312,12 @@ PRODUCERS: dict[str, Producer] = {
         "the submission headline: money, net value, per-100 and both headrooms",
         script="run_headline.py",
     ),
+    "ambiguous": Producer(
+        "ambiguous",
+        "failure class 6, at masking share 0.35 (off by default in the generator)",
+        script="run_ambiguous.py",
+        args=("--share", "0.35"),
+    ),
     "leadtime": Producer(
         "leadtime",
         "novelty N3: what the RBI notice rule costs, timing vs opt-out",
@@ -983,6 +989,59 @@ CLAIMS: list[Claim] = [
     C("prior.floor", R, "against 59.3%, over a 36.1% fixed-schedule floor.",
       "prior", "legacy_floor", 36.1, TOL_PCT_1DP, FRACTION_TO_PERCENT, "%"),
 
+    # ------------------------------------------- failure class 6 (masked) --
+    # Measured at --share 0.35. The generator default is 0.0, so none of these
+    # numbers exist on the book every other claim here is measured on - which
+    # is exactly why the flag defaults off.
+    C("c6.masked_failures", R,
+      "unexplained (28.6%)**:",
+      "ambiguous", "masked_failures", 591, TOL_COUNT),
+    C("c6.book_failures", R,
+      "20 seeds x 500 customers, share 0.35 — **591 of 2,063 failures come back",
+      "ambiguous", "book_failures", 2_063, TOL_COUNT),
+    C("c6.masked_share", R, "unexplained (28.6%)**:",
+      "ambiguous", "masked_share", 28.6, TOL_PCT_1DP, FRACTION_TO_PERCENT, "%"),
+    C("c6.posterior_accuracy", R,
+      "still names the true class behind a *masked* 05 correctly **79.3% of the time**",
+      "ambiguous", "posterior_top1_accuracy", 79.3, TOL_PCT_1DP,
+      FRACTION_TO_PERCENT, "%"),
+    C("c6.posterior_scored", R,
+      "(138/174).",
+      "ambiguous", "posterior_scored", 174, TOL_COUNT),
+    C("c6.value_at_risk", R,
+      "Value at risk across 591 failures: **Rs 1,461,571**.",
+      "ambiguous", "value_at_risk", 1_461_571, TOL_RUPEE, unit="Rs"),
+    C("c6.money.legacy", R,
+      "| legacy fixed | 791,343 | 54.1% | 71.4% | -7,426,553 | 963 |",
+      "ambiguous", "policies.legacy_fixed.money", 791_343, TOL_RUPEE, unit="Rs"),
+    C("c6.rate.legacy", R,
+      "| legacy fixed | 791,343 | 54.1% | 71.4% | -7,426,553 | 963 |",
+      "ambiguous", "policies.legacy_fixed.recovery_rate", 71.4, TOL_PCT_1DP,
+      FRACTION_TO_PERCENT, "%"),
+    C("c6.money.sequencer", R,
+      "| **sequencer** | **1,040,373** | **71.2%** | **80.9%** | **-2,256,868** | 517 |",
+      "ambiguous", "policies.sequencer.money", 1_040_373, TOL_RUPEE, unit="Rs"),
+    C("c6.share.sequencer", R,
+      "| **sequencer** | **1,040,373** | **71.2%** | **80.9%** | **-2,256,868** | 517 |",
+      "ambiguous", "policies.sequencer.value_recovered_share", 71.2, TOL_PCT_1DP,
+      FRACTION_TO_PERCENT, "%"),
+    C("c6.net.sequencer", R,
+      "| **sequencer** | **1,040,373** | **71.2%** | **80.9%** | **-2,256,868** | 517 |",
+      "ambiguous", "policies.sequencer.net_value", -2_256_868, TOL_RUPEE, unit="Rs"),
+    C("c6.money.blind", R,
+      "| `no_masking_posterior` | 1,045,200 | 71.5% | 81.7% | -2,162,173 | 735 |",
+      "ambiguous", "policies.no_masking_posterior.money", 1_045_200, TOL_RUPEE,
+      unit="Rs"),
+    C("c6.money.oracle", R,
+      "| oracle ceiling | 1,215,108 | 83.1% | 84.3% | -835,045 | 276 |",
+      "ambiguous", "policies.oracle_ceiling.money", 1_215_108, TOL_RUPEE, unit="Rs"),
+    C("c6.posterior_delta_money", R,
+      "necessarily does — the posterior costs **Rs 4,827 of recovery and Rs 94,695 of",
+      "ambiguous", "posterior_delta_money", -4_827, TOL_RUPEE, unit="Rs"),
+    C("c6.posterior_delta_net", R,
+      "necessarily does — the posterior costs **Rs 4,827 of recovery and Rs 94,695 of",
+      "ambiguous", "posterior_delta_net_value", -94_695, TOL_RUPEE, unit="Rs"),
+
     # ------------------------------------------- the generator's own shape --
     # These are not results, and that is the point. No policy figure moves when
     # the oracle horizon changes, so the results checker above sailed past a
@@ -1021,8 +1080,8 @@ CLAIMS: list[Claim] = [
       note="as an int, because the comparator is numeric"),
 
     # -------------------------------------------------- the suite's own size --
-    C("tests.count", R, "pytest                      # 282 tests",
-      "tests", "selected", 282, TOL_COUNT, unit="tests"),
+    C("tests.count", R, "pytest                      # 298 tests",
+      "tests", "selected", 298, TOL_COUNT, unit="tests"),
 
     # --------------------------------------------- the 20-seed dataset table --
     C("ds.failure_rate.mean", R,

@@ -81,6 +81,7 @@ from generator.optout import (
     IrritationDirection,
     draw_optout,
 )
+from generator.ambiguous import AmbiguityConfig
 from generator.oracle import resolve_presentment
 from policy.base import Policy, PolicyState
 
@@ -346,6 +347,7 @@ def run_episode(
     lead_time_days: int = 1,
     notifications_can_cancel: bool = True,
     strict_compliance: bool = True,
+    ambiguity: AmbiguityConfig | None = None,
 ) -> EpisodeResult:
     """Play ``policy`` against one failure event and score it against truth.
 
@@ -399,7 +401,7 @@ def run_episode(
             ep.failed_presentments += 1
         else:
             cleared, code = _record_presentment(
-                ep, customer, cycle_debit, amount, balance_series
+                ep, customer, cycle_debit, amount, balance_series, ambiguity
             )
             ep.log.append(
                 _stamped(ep,
@@ -437,6 +439,7 @@ def run_episode(
             failure_class=failure_event.failure_class,
             return_code=failure_event.return_code,
             strict_compliance=strict_compliance,
+            ambiguity=ambiguity,
         )
         if terminal:
             break
@@ -507,6 +510,7 @@ def _record_presentment(
     day: date,
     amount: float,
     balance_series: pd.Series,
+    ambiguity: AmbiguityConfig | None = None,
 ) -> tuple[bool, str | None]:
     """Present the debit, append it to history, report (cleared, return_code).
 
@@ -524,11 +528,11 @@ def _record_presentment(
     """
     nudges = ep.cycle_nudges
     cleared, return_code, _ = resolve_presentment(
-        customer, day, amount, balance_series, nudges=nudges
+        customer, day, amount, balance_series, nudges=nudges, ambiguity=ambiguity
     )
     if nudges and customer.requires_otp:
         unnudged, _, _ = resolve_presentment(
-            customer, day, amount, balance_series, nudges=0
+            customer, day, amount, balance_series, nudges=0, ambiguity=ambiguity
         )
         # The gate opened, and it would not have without the nudges. Attributed
         # whether or not the balance then covered it: the nudge's job is the
@@ -572,6 +576,7 @@ def _run_cycle(
     failure_class: str = rules.FAILURE_CLASS_INSUFFICIENT_FUNDS,
     return_code: str = rules.RETURN_CODE_INSUFFICIENT_FUNDS,
     strict_compliance: bool = True,
+    ambiguity: AmbiguityConfig | None = None,
 ) -> bool:
     """Walk one billing cycle. Returns True if the episode ended inside it.
 
@@ -637,7 +642,9 @@ def _run_cycle(
             ep.attempts_used += 1
             cycle_attempts += 1
             ep.cycle_attempts = cycle_attempts
-            cleared, code = _record_presentment(ep, customer, day, amount, balance_series)
+            cleared, code = _record_presentment(
+                ep, customer, day, amount, balance_series, ambiguity
+            )
             ep.log.append(
                 _stamped(ep,
                     day,

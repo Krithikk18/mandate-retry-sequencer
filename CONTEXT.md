@@ -42,7 +42,7 @@ only in their success model and permitted actions.
 | Expired/reissued card | Nothing, mandate is dead | NUDGE to update card | Never |
 | Customer opted out | Nothing, consent withdrawn | STOP | Never |
 | AFA incomplete (>Rs 15,000) | Will they complete OTP | NUDGE to complete | Only after OTP |
-| Ambiguous decline | Unknown | One cautious retry | Once, then stop |
+| Ambiguous decline | A POSTERIOR over the other five | Whatever the mixture prices | Sometimes, and the model says when |
 
 Two of six should never be retried at all. Fixed schedules retry them
 anyway. That is free recovery for a class-aware system.
@@ -82,6 +82,8 @@ which is worth saying out loud because it looks like repetition and is not:
     payday.py         one customer in isolation - pooling would be meaningless
     bank_health.py    pooled across customers on one issuer
     otp_completion.py one customer again, but over an action we control
+    masking.py        pooled across an issuer again, but over WHICH QUESTION
+                      is being asked rather than over an answer
 
 ## When class-specific modelling pays, and how much
 
@@ -375,7 +377,48 @@ find them anyway.
    lead_time_ablation.py, export_audit_sample.py and one inside test_afa.py -
    none of which anybody had noticed.
 
-7. The bank concentration table is realistic in SHAPE only. Per-issuer
+7. Class 6's posterior is a GOOD INFERENCE that makes a WORSE DECISION, and
+   both halves have to be said.
+
+   A 05 hides the QUESTION rather than a parameter, so the handler is a fitted
+   posterior over the other five classes and the success probability is their
+   mixture. The inference works. Measured at masking share 0.35, 20 seeds:
+   naming the true class behind a masked 05 is right 79.3% of the time
+   (138/174), and the fit tracks the generator when the generator is perturbed
+   - which is the anti-self-fulfilment test the class ships on.
+
+   And it loses money. Against `no_masking_posterior`, which prices every 05
+   as a plain balance failure:
+
+       money      1,015,598  vs  1,045,200   posterior costs Rs 29,602
+       net value -2,652,701  vs -2,162,173   posterior costs Rs 490,528
+       recovery       78.3%  vs      81.7%   posterior costs 3.4 points
+       notices          240  vs        735
+       opt-outs           4  vs         12
+
+   The mechanism is legible. The posterior puts 43.8% of its mass on a
+   permanent block, which is roughly right - 70.6% of masked failures really
+   are 05-native, block or glitch - so the mixture prices most dates low and
+   the agent HOLDS. That avoids two thirds of the opt-outs and two thirds of
+   the notices, and it is still the worse trade, because holding is not free:
+   twelve cycles of carrying cost plus natural attrition destroys more LTV
+   than the opt-outs it avoided. The agent swapped a fast way of losing a
+   mandate for a slow one.
+
+   This is the third result of its shape in the project and the pattern is
+   now the point rather than an embarrassment: the bank-health signal is a
+   correct inference worth exactly zero (class 2), the churn term is a correct
+   mechanism with an estimator too coarse to pay (N2), and the masking
+   posterior is a correct belief that drives a worse action. Being right is
+   not the same as being useful, and a project that only reported the cases
+   where they coincided would be selecting on the outcome.
+
+   What it argues for is a decision-theoretic fix rather than a better
+   posterior: the mixture is fed to a money equation with no time preference
+   and a flat carrying cost, so "hold and see" looks cheaper than it is. That
+   is the same daily_discount gap open issue 2 already names.
+
+8. The bank concentration table is realistic in SHAPE only. Per-issuer
    UPI Autopay mandate share is not published by NPCI. What is public is
    the broad concentration: a handful of large issuers carry most
    mandates, with a long tail of smaller banks and small finance banks.
@@ -467,11 +510,12 @@ closed. Git history has what they said.
    switching it on is a decision for the write-up, not a quiet edit. It
    is the highest-value change outstanding.
 
-3. Class 6 (ambiguous) is still a stub in src/classes/stubs.py. It declares
-   implemented = False, returns a success probability of 0.0, and is excluded
-   from every reported number. It needs its cautious-single-retry rule wired
-   through to the engine. Class 5 (afa_incomplete) is now built; the stub
-   module holds only the one class.
+3. CLOSED. Class 6 (ambiguous) is built - src/classes/ambiguous.py, and
+   classes/stubs.py is deleted because nothing remained in it. The taxonomy
+   is complete: implemented_classes() == FAILURE_CLASSES, and a test asserts
+   it. What it turned into is not what this note anticipated - see honesty
+   item 7. It is OFF BY DEFAULT (ambiguity_share=0.0), so every number
+   measured before it still reproduces byte-identically.
 
 4. The AFA class is THIN by episode count - 5.6% of failures pooled across
    20 seeds (5.7% as a mean of the per-seed shares),

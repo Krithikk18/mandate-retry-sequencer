@@ -34,7 +34,10 @@ from generator import rules
 from policy.base import Policy, PolicyState, RetryDecision
 from router import route
 
+from classes.ambiguous import AmbiguousHandler
+
 from .bank_health import BASE_OUTAGE_RATE, BankHealthModel, PresentmentOutcome
+from .masking import MaskingModel
 from .churn import DEFAULT_IRRITATION_DIRECTION, IrritationDirection
 from .decision_engine import DecisionEngine, ScoredDate
 from .otp_completion import MAX_NUDGES_PER_CYCLE, OtpCompletionModel
@@ -91,6 +94,13 @@ class SequencerConfig:
     # base rate instead of pooling evidence from other customers on the same
     # bank. This isolates what the shared signal is worth.
     use_bank_health: bool = True
+
+    # no_masking_posterior: strip the fitted mixture from class 6. The agent
+    # still knows the decline was unexplained, but prices every 05 as if it
+    # were a plain balance failure - which is what any system without a model
+    # of masking necessarily does. Whether the posterior is worth anything is
+    # then an empirical question, and run_ablations.py answers it.
+    use_masking_posterior: bool = True
     # Time preference on recovered money. 0.0 reproduces the equation as
     # originally specified; see DecisionEngine.daily_discount.
     daily_discount: float = 0.0
@@ -168,6 +178,7 @@ class SequencerPolicy(Policy):
         config: SequencerConfig | None = None,
         name: str = "sequencer",
         bank_health: BankHealthModel | None = None,
+        masking: MaskingModel | None = None,
     ) -> None:
         self.config = config or SequencerConfig()
         self.name = name
@@ -177,6 +188,18 @@ class SequencerPolicy(Policy):
         # already primed it from the whole book; otherwise it accumulates as
         # customers are seen, which is how a live system would learn.
         self.bank_health = bank_health or BankHealthModel()
+        # Pooled per issuer, exactly like bank_health: how often an acquirer
+        # hides its decline reasons is a property of the institution, so every
+        # 05 it returned is evidence about the next one. Per-book state, which
+        # is why this policy must be bound per seed - see for_dataset.
+        # Injected when the caller has already fitted it from the WHOLE book,
+        # which is what a deployment has and what avoids a nasty selection
+        # bias: fitting only from the customers whose episodes happen to be
+        # played over-samples permanent blocks, because a blocked mandate emits
+        # an unexplained decline every single cycle while a transient one emits
+        # exactly one. Measured: 0.90 vs 0.64 mass on permanent_block.
+        self.masking = masking or MaskingModel()
+        self._masking_primed = masking is not None
         # customer_id -> public signature, so this doubles as the dedup set for
         # bank evidence AND as the record that catches a second seed's customers
         # arriving under ids this policy has already seen.
@@ -202,6 +225,7 @@ class SequencerPolicy(Policy):
         config: SequencerConfig | None = None,
         name: str = "sequencer",
         bank_health: BankHealthModel | None = None,
+        masking: MaskingModel | None = None,
     ) -> "SequencerPolicy":
         """Build a policy bound to ONE dataset's book. The safe constructor.
 
@@ -223,7 +247,7 @@ class SequencerPolicy(Policy):
 
         or, with a config, a small lambda over it.
         """
-        policy = cls(config, name=name, bank_health=bank_health)
+        policy = cls(config, name=name, bank_health=bank_health, masking=masking)
         policy.bind_to(dataset)
         return policy
 
@@ -303,6 +327,14 @@ class SequencerPolicy(Policy):
         if customer_id in self._ingested:
             return
         self._ingested[customer_id] = customer_identity(state.customer)
+        # Class 6 evidence rides along in the same pass and under the same
+        # dedup: what this customer's past unexplained declines turned out to
+        # be is pooled across the issuer. Fitted from the observable channel
+        # only - see agent/masking.py on why it must never read the generator.
+        if not self._masking_primed:
+            self.masking.observe_customer(
+                state.customer.bank_id, list(state.payment_history)
+            )
         for record in state.payment_history:
             if record.succeeded:
                 continue
@@ -378,6 +410,30 @@ class SequencerPolicy(Policy):
         """
         uptime = self._uptime_curve(state, start, end)
         return {day: value * uptime.get(day, 1.0) for day, value in curve.items()}
+
+    def _ambiguous_curve(
+        self, state: PolicyState, start: date, end: date
+    ) -> dict[date, float]:
+        """The class-6 curve: a mixture over the other five, not a multiplier.
+
+        Unlike the bank and AFA terms this REPLACES the liquidity curve rather
+        than scaling it, and it has to. Those two multiply because the balance
+        question is still live behind them - a bank being up does not feed
+        anybody. Here the question itself is unknown: if the true cause is a
+        permanent risk block then the balance is irrelevant, and multiplying a
+        liquidity curve by anything would still be pricing the wrong question.
+
+        The mixture already contains a liquidity term inside each component
+        that needs one, which is why the components are composed rather than
+        reimplemented.
+        """
+        handler = AmbiguousHandler(masking=self.masking)
+        curve: dict[date, float] = {}
+        day = start
+        while day <= end:
+            curve[day] = handler.success_probability(state, day)
+            day += timedelta(days=1)
+        return curve
 
     def _apply_afa_term(
         self, curve: dict[date, float], completion: float
@@ -499,6 +555,14 @@ class SequencerPolicy(Policy):
 
         earliest = self.engine.earliest_presentment_date(state.today)
         curve = self._liquidity(model, state, earliest, state.cycle_end_date)
+        is_ambiguous = (
+            state.failure_event.failure_class == rules.FAILURE_CLASS_AMBIGUOUS
+        )
+        if is_ambiguous and self.config.use_masking_posterior and curve:
+            # no_masking_posterior leaves the plain liquidity curve in place,
+            # which IS the naive treatment: every 05 read as a balance failure.
+            curve = self._ambiguous_curve(state, earliest, state.cycle_end_date)
+            base["masking"] = self.masking.explain(state.customer.bank_id)
         if state.failure_event.failure_class == rules.FAILURE_CLASS_DOWNTIME:
             curve = self._apply_bank_term(state, curve, earliest, state.cycle_end_date)
         if is_afa:

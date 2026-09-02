@@ -27,7 +27,7 @@ construction and useless as a target.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -35,6 +35,7 @@ from datetime import datetime
 
 from generator import rules
 from generator.afa import MAX_USEFUL_NUDGES
+from generator.ambiguous import AmbiguityConfig
 from generator.banks import BankOutageBook
 from generator.models import Customer
 from generator.oracle import first_success_date, would_succeed_at
@@ -85,10 +86,17 @@ class OraclePolicy(Policy):
         balance_series: dict[str, pd.Series],
         horizon_days: int = 30,
         outages: BankOutageBook | None = None,
+        ambiguity: AmbiguityConfig | None = None,
     ) -> None:
         self._customers = customers
         self._balances = balance_series
         self._outages = outages
+        # Class 6. The ceiling must score in the world the data was BUILT in:
+        # a ceiling that believes a silently risk-blocked mandate can clear
+        # chases money nobody could ever collect, and every headroom figure
+        # quoted against it becomes fiction. Same reason oracle.py already
+        # gives for mirroring the class-2 and class-5 gates.
+        self._ambiguity = ambiguity
         self.horizon_days = horizon_days
 
     @classmethod
@@ -102,11 +110,24 @@ class OraclePolicy(Policy):
         """
         from generator.generate import outage_book_for
 
+        from generator.ambiguous import AmbiguityConfig as _Cfg
+
+        share = float(dataset.meta.get("ambiguity_share", 0.0))
+        ambiguity = (
+            _Cfg(
+                share=share,
+                seed=dataset.seed,
+                window_start=date.fromisoformat(dataset.meta["series_start"]),
+            )
+            if share > 0.0
+            else None
+        )
         return cls(
             {c.customer_id: c for c in dataset.customers},
             dataset.balance_series,
             horizon_days=horizon_days,
             outages=outage_book_for(dataset),
+            ambiguity=ambiguity,
         )
 
     def decide(self, state: PolicyState) -> RetryDecision:
@@ -234,7 +255,8 @@ class OraclePolicy(Policy):
             while day <= state.cycle_end_date:
                 at = datetime.combine(day, rules.DEFAULT_PRESENTMENT_TIME)
                 if would_succeed_at(
-                    truth, at, amount, series, self._outages, nudges=nudges
+                    truth, at, amount, series, self._outages, nudges=nudges,
+                    ambiguity=self._ambiguity,
                 ):
                     return day
                 day += timedelta(days=1)
@@ -246,4 +268,5 @@ class OraclePolicy(Policy):
             after=earliest - timedelta(days=1),
             horizon_days=self.horizon_days,
             nudges=nudges,
+            ambiguity=self._ambiguity,
         )

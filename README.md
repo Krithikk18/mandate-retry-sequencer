@@ -290,7 +290,7 @@ construction error rather than a silent data problem:
 
 ```bash
 pip install -e ".[dev]"     # or: pip install numpy pandas pydantic pyarrow pytest
-pytest                      # 282 tests
+pytest                      # 298 tests
 python scripts/inspect_data.py --n 500 --seed 42 --save data/run_42
 python scripts/verify_docs.py   # every number in this file still reproduces
 ```
@@ -1100,7 +1100,7 @@ CONTEXT lists six. This build implements five and declares the last.
 | `afa_incomplete` | **yes** - OTP completion x liquidity | depends on the customer acting | all five |
 | `expired_or_reissued_card` | **yes** (trivially) | **0.0** | NUDGE, HOLD, CANCEL |
 | `customer_opted_out` | **yes** (trivially) | **0.0** | CANCEL only |
-| `ambiguous_decline` | stub | - | declared, not implemented |
+| `ambiguous_decline` | **yes** - a posterior over the other five | depends on which class it really is | RETRY, WAIT, HOLD, CANCEL |
 
 The two complete-but-trivial classes are the point of the abstraction. An
 expired credential and a revoked mandate cannot clear on **any** date, so their
@@ -1677,6 +1677,139 @@ exactly 0.75.
 
 ---
 
+## Failure class 6: ambiguous decline
+
+The last class, and the only one where **the failure class itself is
+unobserved**.
+
+    class 1  hides a PARAMETER (a payday) behind a code that says "find it"
+    class 2  hides a PARAMETER (an outage) behind a code that says "find it"
+    class 5  hides a PARAMETER (responsiveness) behind a code that says "find it"
+    class 6  hides the QUESTION
+
+A `05` — "do not honour" — is not a failure mode. It is a **mask** over one of
+the others. The issuer declined and gave no reason, and behind every one there
+is a real cause: the customer was broke, the credential was dead, a risk engine
+fired, a switch flickered.
+
+So the handler is not a sixth success model. It is a **posterior over the other
+five**, and the success probability is their mixture:
+
+    P(clear on d) = SUM over causes c of  P(true class = c | evidence)
+                                          x  handler_c.success_probability(d)
+
+`classes/ambiguous.py` imports the four implemented component handlers and calls
+them; it reimplements nothing. **The taxonomy closes on itself.**
+
+**Off by default.** `generate_dataset(ambiguity_share=0.0)` is the default and
+produces output byte-identical to the build before this class existed — verified
+file-by-file on seed 42, which is what lets all 243 previously pinned numbers
+survive it. Everything below is measured at `--share 0.35`.
+
+### The trap, and the test that guards it
+
+If the generator draws the hidden cause from mixture X and the agent's prior is
+a copy of X, the agent has been told the answer and every result is
+synthetic-data self-fulfilment. So `agent/masking.py` **reads nothing from the
+generator**. It fits from the observable resolution history of past 05s:
+
+| what the agent sees | what it infers |
+| --- | --- |
+| 05, then a success | it was **transient** — it cleared on its own |
+| 05, then 04 | the account was short all along |
+| 05, then 54 / 1A / 91 | a dead credential / a gate / a real outage |
+| 05, then 05, then 05… | a **permanent block** nobody ever announced |
+
+`tests/test_ambiguous.py` perturbs the generator's mixture and asserts the fit
+moves with it — from **0.038 to 0.735** mass on `permanent_block` as the
+generator's risk-block share goes 0.05 → 0.55. Without that test the class would
+not ship.
+
+It is pooled **per issuer**, like `bank_health.py` and unlike
+`otp_completion.py`, because masking propensity is a property of the
+*institution*: an acquirer that hides its reasons hides them for everybody, so
+every 05 it ever returned is evidence about the next one.
+
+### What is actually behind the 05s
+
+20 seeds x 500 customers, share 0.35 — **591 of 2,063 failures come back
+unexplained (28.6%)**:
+
+| true class | share of the 05s |
+| --- | --- |
+| 05-native (risk block or transient glitch) | 70.6% |
+| insufficient funds | 23.4% |
+| AFA incomplete | 2.0% |
+| expired card | 1.9% |
+| downtime | 1.7% |
+
+Only the truth side knows that table. The agent sees `05` and nothing else, and
+still names the true class behind a *masked* 05 correctly **79.3% of the time**
+(138/174).
+
+### Results, 20 seeds x 500 customers, ambiguous failures only
+
+Value at risk across 591 failures: **Rs 1,461,571**.
+
+| policy | money | of value | recovery | net value | notices |
+| --- | --- | --- | --- | --- | --- |
+| legacy fixed | 791,343 | 54.1% | 71.4% | -7,426,553 | 963 |
+| **sequencer** | **1,040,373** | **71.2%** | **80.9%** | **-2,256,868** | 517 |
+| `no_masking_posterior` | 1,045,200 | 71.5% | 81.7% | -2,162,173 | 735 |
+| oracle ceiling | 1,215,108 | 83.1% | 84.3% | -835,045 | 276 |
+
+**The sequencer recovers Rs 249,030 more than legacy — Rs 421 per ambiguous
+failure** — and cuts notices from 963 to 517.
+
+### The posterior is a good inference that does not pay for itself
+
+This is the honest headline for the class, and it is the third result of its
+shape in this project.
+
+**The inference is good.** 79.3% top-1 accuracy, and it tracks the generator
+when the generator moves.
+
+**It still loses to ignoring it.** Against `no_masking_posterior`, which prices
+every 05 as a plain balance failure — what any system without a model of masking
+necessarily does — the posterior costs **Rs 4,827 of recovery and Rs 94,695 of
+net value**, and 0.8 points of recovery rate.
+
+The mechanism is legible. The fit puts real mass on a permanent block, which is
+roughly right — 70.6% of these failures genuinely are 05-native — so the mixture
+prices most dates low and the agent HOLDS. That buys a real reduction in
+notices, and it is still the worse trade, because **holding is not free**:
+twelve cycles of carrying cost plus natural attrition destroys more lifetime
+value than the opt-outs it avoids. The agent swapped a fast way of losing a
+mandate for a slow one.
+
+**Two measurements, and their signs disagree.** Isolated on the class, the
+posterior costs Rs 94,695 of net value. Book-wide through
+`run_ablations.py --ambiguity-share 0.35`, removing it comes out *worse* on all
+20 seeds. The two score different episode sets and the effect is small in both,
+so the defensible reading is the one this project already applies to
+`no_optout_cost`: **not consistent, do not claim it.** No book-wide figure is
+quoted here because it is not pinned by `verify_docs.py` — a 32-minute producer
+is not worth the check budget, and a number the checker cannot regenerate does
+not belong in this file.
+
+### A measurement bug worth recording
+
+The first version of `run_ambiguous.py` let each policy fit its posterior from
+only the episodes it played — the customers who *had* a 05. That is a badly
+selected sample: a permanently blocked mandate emits an unexplained decline
+**every cycle**, while a transient one emits exactly one, so blocked customers
+are massively over-represented among 05-havers. Measured on seed 1, the biased
+fit put **0.90** on `permanent_block` against **0.64** fitted from the whole
+book, and it made the posterior look three times worse than it is
+(-Rs 490,528 of net value, against -Rs 94,695 once corrected).
+
+That is selection bias in the harness, not a property of the model, and a
+deployment would not have it: a PSP holds its entire decline history, not just
+today's work queue. The policy now accepts a pre-fitted model, exactly as it
+already did for `BankHealthModel`.
+
+---
+
 ## Package layout
 
 ```
@@ -1708,7 +1841,8 @@ src/classes/      One module per failure class, same two-function interface.
   afa_incomplete.py authentication x liquidity; recovery takes an ACTION
   expired_card.py   dead credential: zero on every date, no RETRY
   opted_out.py      consent revoked: CANCEL only, RETRY is a breach
-  stubs.py          ambiguous - DECLARED, NOT IMPLEMENTED
+  ambiguous.py      a POSTERIOR over the other five, and their mixture -
+                    the class that closes the taxonomy on itself
 
 src/audit/        Renders decision logs for human review.
   trail.py          reads what the policy recorded; never recomputes it
@@ -1745,6 +1879,8 @@ scripts/prior_robustness.py     method or prior? re-run with wrong priors
 scripts/run_multiclass.py       legacy vs sequencer across all failure classes
 scripts/run_downtime.py         failure class 2, and what the notice rule costs it
 scripts/run_afa.py              failure class 5, reported by MONEY rather than rate
+scripts/run_ambiguous.py        failure class 6, and whether its posterior pays
+scripts/run_headline.py         the submission table: money, net value, per-100
 scripts/show_audit.py           the full decision trail for one customer
 scripts/export_audit_sample.py  eleven episodes to docs/audit_samples.md
 scripts/verify_docs.py          every number in README/CONTEXT still reproduces
@@ -1760,6 +1896,8 @@ tests/test_sequencer.py   the policy, its audit trail, and the guardrails
 tests/test_classes.py     the router, the never-retry classes, the audit trail
 tests/test_downtime.py    outages, bank health inference, the two-condition oracle
 tests/test_afa.py         the AFA gate, OTP inference, and the out-of-band nudge
+tests/test_ambiguous.py   masking, the two native causes, and the anti-
+                          self-fulfilment guard on the fitted posterior
 tests/test_docs.py        the documented numbers, marked slow - `pytest -m slow`
 tests/test_policy_binding.py  a stateful policy may not be reused across seeds
 

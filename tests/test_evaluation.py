@@ -616,3 +616,130 @@ def test_oracle_policy_refuses_to_run_against_the_wrong_dataset():
                 two.payment_history,
                 seed=2,
             )
+
+
+# --- money reporting ---------------------------------------------------------
+# Part A of the money-reporting work surfaces figures the harness already
+# computed and then dropped. These tests pin the PROPERTIES of that reporting
+# layer, not the values: the values are pinned by scripts/verify_docs.py against
+# a producing run, which is where a number belongs.
+
+
+def test_net_value_never_exceeds_gross_recovered(dataset):
+    """Net is gross minus costs, and the costs are never negative.
+
+    A net figure above gross would mean the accounting had found money that was
+    not collected - the one direction a cost model must not be able to fail in,
+    because it is the direction that flatters the agent.
+    """
+    for policy in (LegacyFixedSchedule(), OraclePolicy.for_dataset(dataset)):
+        report = evaluate(
+            policy, dataset, seed=42, oracle_metrics=False, strict_compliance=False
+        )
+        assert report.net_value_total <= report.money_recovered + 1e-9, (
+            f"{policy.name}: net {report.net_value_total:,.2f} exceeds gross "
+            f"{report.money_recovered:,.2f}"
+        )
+
+
+def test_net_value_total_is_a_clean_sum_of_the_episode_accounting(dataset):
+    """The report's net value is the sum of economics.net_value, not a re-derivation.
+
+    Worth pinning because the alternative - recomputing the total from
+    aggregates - would silently drop the per-episode outcome, and ltv_lost
+    depends on the outcome of each episode individually.
+    """
+    report = evaluate(
+        LegacyFixedSchedule(), dataset, seed=42, oracle_metrics=False,
+        strict_compliance=False,
+    )
+    rebuilt = sum(
+        economics.net_value(
+            episode.customer,
+            episode.outcome,
+            episode.recovered_amount,
+            episode.attempts_used,
+            episode.bounce_charges_paid,
+            episode.cycles_held,
+            episode.goodwill_cost_paid,
+        )
+        for episode in report.episodes
+    )
+    assert report.net_value_total == pytest.approx(rebuilt)
+
+
+def test_money_headroom_is_reported_and_bounded():
+    """Both headroom numbers exist, and the floor/ceiling anchor both at 0 and 1.
+
+    Mirrors the existing rate assertion. The agent's own value is checked for
+    being a share rather than for a particular size - what it should be is a
+    result, and results live in verify_docs.
+    """
+    legacy = LegacyFixedSchedule()
+    report = compare(
+        [legacy, OraclePolicy.for_dataset],
+        seeds=[1, 2],
+        n_customers=200,
+        baseline_name=legacy.name,
+        ceiling_name=OraclePolicy.name,
+        oracle_metrics=False,
+        strict_compliance=False,
+    )
+    for metric in ("headroom_captured", "money_headroom_captured"):
+        assert report.summary[legacy.name][metric].mean == pytest.approx(0.0)
+        assert report.summary[OraclePolicy.name][metric].mean == pytest.approx(1.0)
+
+
+def test_money_headroom_is_none_when_the_span_is_degenerate():
+    """A floor equal to the ceiling yields None, exactly as the rate version does.
+
+    Comparing a policy against itself makes the span zero. The ratio is then
+    noise over noise and must not be reported as a number; MetricSummary drops
+    None, so the run reports no headroom rather than a fabricated one.
+    """
+    from evaluation.harness import _fill_headroom
+
+    legacy = LegacyFixedSchedule()
+    report = compare(
+        [legacy],
+        seeds=[1],
+        n_customers=200,
+        baseline_name=legacy.name,
+        ceiling_name=legacy.name,
+        oracle_metrics=False,
+        strict_compliance=False,
+    )
+    only = report.per_seed[legacy.name][0]
+    assert only.headroom_captured is None
+    assert only.money_headroom_captured is None
+
+    # And directly, so the guard is tested rather than inferred from a run that
+    # happened to be degenerate.
+    reports = {"a": only}
+    _fill_headroom(reports, "a", "a")
+    assert only.money_headroom_captured is None
+
+
+def test_per_hundred_failures_scales_linearly_with_book_size():
+    """The normalisation is the point: double the book, same per-100 figure."""
+    small = economics.per_hundred_failures(50_000.0, 100)
+    doubled = economics.per_hundred_failures(100_000.0, 200)
+    assert small == pytest.approx(doubled)
+    assert small == pytest.approx(50_000.0)
+
+
+def test_per_hundred_failures_matches_the_lead_time_denominator():
+    """Same arithmetic the Sec 6(c) opt-out cost is quoted with.
+
+    lead_time_ablation.py computes ``money / sum(report.n_failures) * 100``.
+    If this helper ever stopped matching that, the two per-100 figures in the
+    README would be denominated differently while looking comparable.
+    """
+    money, n_failures = 111_773.0, 1_709
+    assert economics.per_hundred_failures(money, n_failures) == pytest.approx(
+        money / n_failures * 100
+    )
+
+
+def test_per_hundred_failures_is_none_on_an_empty_book():
+    assert economics.per_hundred_failures(1234.0, 0) is None

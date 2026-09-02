@@ -131,6 +131,31 @@ def net_value(
     )
 
 
+def per_hundred_failures(amount: float, n_failures: int) -> float | None:
+    """Normalise a batch total to a book of 100 failed mandates.
+
+    Absolute rupees on a synthetic book are not quotable: they scale with
+    ``n_customers`` and with how many of them happened to fail, so the same
+    policy looks ten times better on a bigger run. Per 100 failed mandates is
+    stable across book sizes and is the denominator this project already
+    reports the RBI Sec 6(c) opt-out cost against, so the two figures can be
+    read side by side.
+
+    ``n_failures`` is the count of failure EPISODES summed across every seed in
+    the run - the same quantity ``scripts/lead_time_ablation.py`` divides by,
+    which is ``sum(report.n_failures)``, not a per-seed mean and not a customer
+    count. Matching it exactly is the point; a different denominator would make
+    the two per-100 figures silently incomparable.
+
+    None when there were no failures, for the same reason
+    ``cost_per_rupee_recovered`` returns None: a policy that scored nothing
+    should not be able to look good in an average.
+    """
+    if n_failures <= 0:
+        return None
+    return amount / n_failures * 100.0
+
+
 def cost_per_rupee_recovered(
     total_cost: float, money_recovered: float
 ) -> float | None:

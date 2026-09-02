@@ -38,6 +38,76 @@ sequencer wins are disproportionately the large ones, so a rate-only table
 weights a Rs 199 streaming mandate and a Rs 19,000 one equally — the wrong
 weighting for a revenue-recovery claim.
 
+### What the money cost, and what was left on the table
+
+`python scripts/run_headline.py` — the same 20-seed run, reported **per seed**
+rather than as a batch total, with the ceiling alongside. Gross recovered is
+what came back; **net value** is what it was worth after processing fees, bounce
+charges, the carrying cost of every held cycle, goodwill spent on nudges, and
+the annual LTV of every mandate that died on the way.
+
+| per seed, mean of 20 | legacy fixed | **sequencer** | oracle ceiling |
+| --- | --- | --- | --- |
+| money recovered | Rs 114,697 | **Rs 191,982** | Rs 234,227 |
+| **net value** | **-Rs 2,034,554** | **-Rs 653,258** | **-Rs 252,233** |
+| recovery rate | 36.1% | **59.3%** | 69.0% |
+| presentments | 283 | 357 | 286 |
+| opt-outs induced | 7.3 | **2.2** | 1.6 |
+| mandates retained | 30.9 | **65.3** | 71.8 |
+
+Per **100 failed mandates**, the denominator this file already quotes the
+Sec 6(c) opt-out cost against, so the two are directly comparable:
+
+| per 100 failed mandates | legacy fixed | **sequencer** | oracle ceiling |
+| --- | --- | --- | --- |
+| money recovered | Rs 134,227 | **Rs 224,672** | Rs 274,110 |
+| net value | -Rs 2,380,987 | **-Rs 764,492** | -Rs 295,182 |
+
+**Net value is negative for every policy including the ceiling, and that is not
+a bug.** A failed mandate is already a loss: the annual LTV of everyone who
+opts out or churns is charged against it, and on this book that term dwarfs a
+month's subscription. The number that matters is the *difference* — the
+sequencer is **+Rs 1,381,295 per seed** of net value against the fixed
+schedule — not the level.
+
+### Headroom captured, by rate and by money — they disagree, and that is a finding
+
+| | by recovery rate | by money recovered |
+| --- | --- | --- |
+| mean of per-seed ratios | 70.5% | **62.3%** |
+| ratio of across-seed means | 70.7% | **64.7%** |
+
+**The sequencer captures ~70% of the episodes on the table but only ~64% of the
+rupees.** Money headroom sits 6.0 points below rate headroom pooled, 8.2 points
+below per seed. Read plainly: measured against the ceiling, the agent is
+winning the *cheaper* mandates and leaving more of the expensive ones behind. A
+rate-only table cannot show that, which is the reason for computing headroom
+both ways.
+
+This does not contradict the money-outruns-rate result above; the two are
+measured against different things. Against **legacy**, the sequencer's money
+gain (+67.4%) outpaces its rate gain (+64.1%) — the class-5 effect, since AFA
+rides on the largest mandates. Against the **ceiling**, it falls further behind
+on money than on rate. Both are true, and together they say the agent beats the
+fixed schedule on value while still having its largest remaining upside in the
+big mandates.
+
+Two definitions of headroom are reported because two were already in use in this
+repository — `harness.compare()` averages the per-seed ratios, `run_ablations.py`
+takes the ratio of the means. They answer slightly different questions and
+neither corrects the other; reporting only one while the other was quoted
+elsewhere was the actual defect.
+
+**What these rupees are.** 20 seeds x 500 synthetic customers, 1,709 failed
+mandates, each episode running one billing cycle to at most 12. They are sums
+over a *generated* book and are not a claim about any merchant's revenue. The
+cost parameters behind every net-value figure — processing fees, the hold
+carrying-cost fraction, the nudge goodwill charge — are **estimates declared in
+`generator/rules.py` and marked as such there. They are not published Razorpay
+figures.** The regulatory constants in that file are citable (RBI Sec 6(a),
+6(c), 8(a); the NPCI attempt ceiling and execution window); the money constants
+are not.
+
 Against Razorpay's four nouns: **money recovered** above; **compliant
 escalation** — every presentment obeys the RBI 24-hour pre-debit notice, the
 NPCI 4-attempt ceiling and the 00:00-07:00 execution window, and the simulator
@@ -220,7 +290,7 @@ construction error rather than a silent data problem:
 
 ```bash
 pip install -e ".[dev]"     # or: pip install numpy pandas pydantic pyarrow pytest
-pytest                      # 275 tests
+pytest                      # 282 tests
 python scripts/inspect_data.py --n 500 --seed 42 --save data/run_42
 python scripts/verify_docs.py   # every number in this file still reproduces
 ```

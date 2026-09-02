@@ -89,9 +89,18 @@ class PolicyReport:
     mean_days_to_resolution: float
     outcomes: dict[str, int] = field(default_factory=dict)
 
-    # Filled in by compare(), which is the only place that knows the baseline
-    # and the ceiling. (mine - legacy) / (oracle - legacy).
+    # Both filled in by compare(), which is the only place that knows the
+    # baseline and the ceiling. (mine - legacy) / (oracle - legacy), computed
+    # once on the recovery RATE and once on the MONEY.
+    #
+    # They are not the same number and the gap between them is a result rather
+    # than a rounding artefact. Capturing more of the money headroom than the
+    # rate headroom means the episodes the agent wins are the expensive ones;
+    # capturing less means it is collecting cheap mandates and leaving the
+    # large ones on the table. A rate-only report cannot tell those apart, and
+    # for a revenue-recovery brief that is the distinction that matters.
     headroom_captured: float | None = None
+    money_headroom_captured: float | None = None
 
     episodes: list[EpisodeResult] = field(default_factory=list, repr=False)
 
@@ -222,6 +231,7 @@ SUMMARISED_METRICS: tuple[str, ...] = (
     "money_recovered",
     "recovery_rate",
     "headroom_captured",
+    "money_headroom_captured",
     "attempts_used_total",
     "cost_per_rupee_recovered",
     "wasted_attempts",
@@ -331,6 +341,47 @@ def _reject_shared_stateful_policies(
     )
 
 
+# Below these spans the floor and the ceiling are the same policy in disguise
+# and the ratio is noise over noise, so headroom is reported as None rather
+# than as a number. Two thresholds because the two metrics have two scales: a
+# recovery rate lives in [0, 1], money is in rupees and a sub-paisa span is the
+# degenerate case.
+RATE_SPAN_EPSILON: float = 1e-12
+MONEY_SPAN_EPSILON: float = 1e-6
+
+HEADROOM_METRICS: tuple[tuple[str, str, float], ...] = (
+    ("recovery_rate", "headroom_captured", RATE_SPAN_EPSILON),
+    ("money_recovered", "money_headroom_captured", MONEY_SPAN_EPSILON),
+)
+
+
+def _fill_headroom(
+    reports: dict[str, PolicyReport], baseline_name: str, ceiling_name: str
+) -> None:
+    """Share of the floor-to-ceiling gap each policy captured, by rate AND money.
+
+    Same arithmetic on both, deliberately: (mine - floor) / (ceiling - floor),
+    within one seed, before any averaging. Averaging the ratio across seeds is
+    not the same as the ratio of the averages, and the per-seed form is the one
+    that survives a seed where the ceiling is unusually low.
+
+    A degenerate span yields None rather than a division, which is what the
+    rate version has always done; the money version mirrors it at its own
+    scale. None values are dropped by ``MetricSummary``, so a run with no
+    headroom to capture reports no headroom rather than a fabricated 0 or 1.
+    """
+    for metric, field_name, epsilon in HEADROOM_METRICS:
+        floor = getattr(reports[baseline_name], metric)
+        ceiling = getattr(reports[ceiling_name], metric)
+        span = ceiling - floor
+        for report in reports.values():
+            setattr(
+                report,
+                field_name,
+                (getattr(report, metric) - floor) / span if span > epsilon else None,
+            )
+
+
 def compare(
     policies: Iterable[PolicySpec],
     seeds: Sequence[int],
@@ -351,9 +402,11 @@ def compare(
     ``requires_per_seed_binding`` may NOT be passed as a shared instance when
     there is more than one seed - see ``_reject_shared_stateful_policies``.
 
-    ``headroom_captured`` needs both a floor and a ceiling, so it is filled in
-    here: (policy - baseline) / (ceiling - baseline), measured on recovery rate
-    within each seed before averaging.
+    ``headroom_captured`` and ``money_headroom_captured`` both need a floor and
+    a ceiling, so they are filled in here: (policy - baseline) /
+    (ceiling - baseline), measured within each seed before averaging, once on
+    the recovery rate and once on the money recovered. See ``_fill_headroom``
+    for why both are reported.
     """
     specs = list(policies)
     _reject_shared_stateful_policies(specs, seeds)
@@ -379,13 +432,7 @@ def compare(
         }
 
         if baseline_name in reports and ceiling_name in reports:
-            floor = reports[baseline_name].recovery_rate
-            ceiling = reports[ceiling_name].recovery_rate
-            span = ceiling - floor
-            for report in reports.values():
-                report.headroom_captured = (
-                    (report.recovery_rate - floor) / span if span > 1e-12 else None
-                )
+            _fill_headroom(reports, baseline_name, ceiling_name)
 
         for name, report in reports.items():
             per_seed.setdefault(name, []).append(report)

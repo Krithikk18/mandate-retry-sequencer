@@ -1001,13 +1001,20 @@ CLAIMS: list[Claim] = [
       "ambiguous", "book_failures", 2_063, TOL_COUNT),
     C("c6.masked_share", R, "unexplained (28.6%)**:",
       "ambiguous", "masked_share", 28.6, TOL_PCT_1DP, FRACTION_TO_PERCENT, "%"),
-    C("c6.posterior_accuracy", R,
-      "still names the true class behind a *masked* 05 correctly **79.3% of the time**",
-      "ambiguous", "posterior_top1_accuracy", 79.3, TOL_PCT_1DP,
-      FRACTION_TO_PERCENT, "%"),
-    C("c6.posterior_scored", R,
-      "(138/174).",
-      "ambiguous", "posterior_scored", 174, TOL_COUNT),
+    # There is deliberately NO row for `posterior_top1_accuracy`. The field is
+    # still emitted, because the measurement is real and run_ambiguous.py prints
+    # it beside the base-rate control that disproves it - but neither document
+    # quotes it any more, so a registry row would fail as "anchor not found"
+    # forever. The reason it was withdrawn is in README.md under "What is
+    # deliberately not claimed here": the posterior is fitted per issuer and
+    # does not take the episode, so its argmax is constant within a bank and an
+    # always-guess classifier ties with it exactly. Do not re-pin it without an
+    # episode-conditional model behind it.
+    C("c6.scored", R,
+      "174 scored events it produced two distinct predictions and an",
+      "ambiguous", "posterior_scored", 174, TOL_COUNT,
+      note="the count of scored events survives the withdrawal; the accuracy "
+           "computed over it does not"),
     C("c6.value_at_risk", R,
       "Value at risk across 591 failures: **Rs 1,461,571**.",
       "ambiguous", "value_at_risk", 1_461_571, TOL_RUPEE, unit="Rs"),
@@ -1041,6 +1048,59 @@ CLAIMS: list[Claim] = [
     C("c6.posterior_delta_net", R,
       "necessarily does — the posterior costs **Rs 4,827 of recovery and Rs 94,695 of",
       "ambiguous", "posterior_delta_net_value", -94_695, TOL_RUPEE, unit="Rs"),
+
+    # ------------------------------- CONTEXT.md's copy of the class-6 table --
+    # Pinned because it DID drift, and silently. Honesty item 7 went on quoting
+    # the selection-biased first run - Rs 490,528 of net value against a true
+    # Rs 94,695 - for as long as README.md had been corrected, and nothing
+    # noticed, because the registry had 22 CONTEXT rows and not one of them
+    # landed in that section. A table quoted in two files needs a row per file:
+    # the checker cannot see that two documents disagree, only that each agrees
+    # with the run.
+    C("c6.ctx.money.sequencer", X,
+      "money      1,040,373  vs  1,045,200   posterior costs Rs 4,827",
+      "ambiguous", "policies.sequencer.money", 1_040_373, TOL_RUPEE, unit="Rs"),
+    C("c6.ctx.money.blind", X,
+      "money      1,040,373  vs  1,045,200   posterior costs Rs 4,827",
+      "ambiguous", "policies.no_masking_posterior.money", 1_045_200, TOL_RUPEE,
+      unit="Rs"),
+    C("c6.ctx.delta.money", X,
+      "money      1,040,373  vs  1,045,200   posterior costs Rs 4,827",
+      "ambiguous", "posterior_delta_money", -4_827, TOL_RUPEE, unit="Rs"),
+    C("c6.ctx.net.sequencer", X,
+      "net value -2,256,868  vs -2,162,173   posterior costs Rs 94,695",
+      "ambiguous", "policies.sequencer.net_value", -2_256_868, TOL_RUPEE, unit="Rs"),
+    C("c6.ctx.net.blind", X,
+      "net value -2,256,868  vs -2,162,173   posterior costs Rs 94,695",
+      "ambiguous", "policies.no_masking_posterior.net_value", -2_162_173, TOL_RUPEE,
+      unit="Rs"),
+    C("c6.ctx.delta.net", X,
+      "net value -2,256,868  vs -2,162,173   posterior costs Rs 94,695",
+      "ambiguous", "posterior_delta_net_value", -94_695, TOL_RUPEE, unit="Rs"),
+    C("c6.ctx.rate.sequencer", X,
+      "recovery       80.9%  vs      81.7%   posterior costs 0.8 points",
+      "ambiguous", "policies.sequencer.recovery_rate", 80.9, TOL_PCT_1DP,
+      FRACTION_TO_PERCENT, "%"),
+    C("c6.ctx.rate.blind", X,
+      "recovery       80.9%  vs      81.7%   posterior costs 0.8 points",
+      "ambiguous", "policies.no_masking_posterior.recovery_rate", 81.7, TOL_PCT_1DP,
+      FRACTION_TO_PERCENT, "%"),
+    C("c6.ctx.notices.sequencer", X,
+      "notices          517  vs        735",
+      "ambiguous", "policies.sequencer.notifications", 517, TOL_COUNT),
+    C("c6.ctx.notices.blind", X,
+      "notices          517  vs        735",
+      "ambiguous", "policies.no_masking_posterior.notifications", 735, TOL_COUNT),
+    C("c6.ctx.optouts.sequencer", X,
+      "opt-outs           8  vs         12",
+      "ambiguous", "policies.sequencer.optouts", 8, TOL_COUNT),
+    C("c6.ctx.optouts.blind", X,
+      "opt-outs           8  vs         12",
+      "ambiguous", "policies.no_masking_posterior.optouts", 12, TOL_COUNT),
+    C("c6.ctx.permanent_block_mass", X,
+      "The mechanism is legible. The posterior puts 43.8% of its mass on a",
+      "ambiguous", "fitted_posterior_mean.permanent_block", 43.8, TOL_PCT_1DP,
+      FRACTION_TO_PERCENT, "%"),
 
     # ------------------------------------------- the generator's own shape --
     # These are not results, and that is the point. No policy figure moves when

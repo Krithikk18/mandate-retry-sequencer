@@ -1,9 +1,11 @@
 # Mandate Retry Sequencer
 
 Decides **when and whether** to retry a failed Indian recurring debit, instead
-of firing a fixed day-2/4/7 schedule at every failure. Five of six NACH/UPI
-failure classes are modelled behind a router that dispatches on the acquirer's
-return code; the sixth is a declared stub and produces no numbers.
+of firing a fixed day-2/4/7 schedule at every failure. All six NACH/UPI failure
+classes are modelled behind a router that dispatches on the acquirer's return
+code. The sixth — an unexplained `05` decline — is a fitted posterior over the
+other five, and it is **off by default** (`ambiguity_share=0.0`), so every
+number measured before it still reproduces byte-identically.
 
 Contains the **data generator**, the **fixed-schedule baseline**, the
 **evaluation harness** that scores any policy against the oracle, and the
@@ -314,12 +316,21 @@ pytest -m slow                           # the same check, wired to pytest
 ```
 
 `scripts/verify_docs.py` re-runs every experiment at 20 seeds x 500 customers and
-checks each of the **185 numbers written in this file and in CONTEXT.md** against
+checks each of the **270 numbers written in this file and in CONTEXT.md** against
 what the producing run actually returns. It exists because the project's own rule
 — *every number must come from a reproducible run* — had nothing enforcing it.
 Adding the fifth failure class changed the population underneath figures measured
 during classes 1 and 2, and two of those were caught only because somebody
 happened to be editing the paragraph beside them.
+
+**That 270 is the one number on this page with no producer behind it**, and it is
+worth saying so rather than quietly keeping it current. Nothing measures the size
+of the registry, so the count is asserted here and checked by nobody — it had
+already rotted to 185 before an audit noticed, while the registry itself was
+correct throughout. It is the coverage boundary in one line: a checker that pins
+results cannot pin a fact about itself, and it cannot pin a sentence that
+contains no number at all. Both gaps are real and neither is fixed by a bigger
+registry.
 
 It is built in three pieces. A **registry** maps each documented claim to the
 script and field that produces it. A **runner** executes those scripts once each
@@ -358,7 +369,7 @@ systematically wrong but deterministic passes perfectly — and one was: every
 ablation figure below was, for a while, computed by a policy that carried one
 bank-health model across all twenty seeds
 ([the binding defect](#a-stateful-policy-shared-across-seeds)). `verify_docs`
-certified those numbers 185/185, correctly, because they did reproduce.
+certified every one of those numbers, correctly, because they did reproduce.
 Reproducibility is not correctness. The defences against *that* class of error
 are invariants in the code and tests that fail on the broken version, not a
 checker downstream of both.
@@ -1091,7 +1102,8 @@ band.
 
 ## The other failure classes
 
-CONTEXT lists six. This build implements five and declares the last.
+CONTEXT lists six. This build implements all six; `implemented_classes() ==
+FAILURE_CLASSES`, and `tests/test_classes.py` asserts it.
 
 | class | modelled? | success on any date | actions |
 | --- | --- | --- | --- |
@@ -1107,8 +1119,12 @@ expired credential and a revoked mandate cannot clear on **any** date, so their
 success model is the constant zero and their action set simply omits RETRY.
 That is five lines each, and it buys the result below.
 
-The stub exists so the router has no missing branch. It is marked
-`implemented = False`, it produces no numbers, and nothing is claimed for it.
+The taxonomy is closed: there is no stub left, and `classes/stubs.py` is
+deleted because nothing remained in it. `ambiguous_decline` is generated only
+when `ambiguity_share > 0`, which is not the default — so it is *implemented
+everywhere and exercised on request*, and the multi-class table below is
+measured on the five-class book every earlier figure was measured on. Its own
+numbers are in [Failure class 6](#failure-class-6-ambiguous-decline).
 
 ### The router
 
@@ -1743,9 +1759,24 @@ unexplained (28.6%)**:
 | expired card | 1.9% |
 | downtime | 1.7% |
 
-Only the truth side knows that table. The agent sees `05` and nothing else, and
-still names the true class behind a *masked* 05 correctly **79.3% of the time**
-(138/174).
+Only the truth side knows that table. The agent sees `05` and nothing else.
+
+**What is deliberately not claimed here.** Earlier drafts quoted a *top-1
+accuracy* for naming the true class behind a masked 05. That number is
+withdrawn. `MaskingModel.posterior()` is fitted per **issuer** and does not
+depend on the episode, so its argmax is a constant within a bank — across the
+174 scored events it produced two distinct predictions and an
+always-guess-`insufficient_funds` classifier scored identically, to the digit.
+The metric also dropped the majority class from its denominator and excluded
+`transient` and `permanent_block` from the candidate set, which are the two
+causes the posterior exists to detect. It measured a base rate, not
+discrimination.
+
+No repaired accuracy figure replaces it. A per-issuer posterior cannot do
+per-event discrimination, so there is no honest per-event number to quote here;
+what the model is *for* is pricing a date, and that is measured below in
+rupees. The claim that survives is calibration, which is a different claim and
+is tested directly.
 
 ### Results, 20 seeds x 500 customers, ambiguous failures only
 
@@ -1761,13 +1792,17 @@ Value at risk across 591 failures: **Rs 1,461,571**.
 **The sequencer recovers Rs 249,030 more than legacy — Rs 421 per ambiguous
 failure** — and cuts notices from 963 to 517.
 
-### The posterior is a good inference that does not pay for itself
+### The posterior is a calibrated belief that does not pay for itself
 
 This is the honest headline for the class, and it is the third result of its
 shape in this project.
 
-**The inference is good.** 79.3% top-1 accuracy, and it tracks the generator
-when the generator moves.
+**The inference is calibrated.** It tracks the generator when the generator
+moves: `tests/test_ambiguous.py` drives the risk-block share from 0.05 to 0.55
+and the fitted `permanent_block` mass follows, 0.038 → 0.735, on a model that
+reads no generator constant. That is the claim, and it is the only one — see
+[what is deliberately not claimed](#what-is-actually-behind-the-05s) above on
+why an accuracy figure is not quoted beside it.
 
 **It still loses to ignoring it.** Against `no_masking_posterior`, which prices
 every 05 as a plain balance failure — what any system without a model of masking
@@ -1800,7 +1835,7 @@ selected sample: a permanently blocked mandate emits an unexplained decline
 **every cycle**, while a transient one emits exactly one, so blocked customers
 are massively over-represented among 05-havers. Measured on seed 1, the biased
 fit put **0.90** on `permanent_block` against **0.64** fitted from the whole
-book, and it made the posterior look three times worse than it is
+book, and it made the posterior look roughly five times worse than it is
 (-Rs 490,528 of net value, against -Rs 94,695 once corrected).
 
 That is selection bias in the harness, not a property of the model, and a
@@ -2011,10 +2046,14 @@ These were choices the brief left open. Each is easy to change:
    often ends after a few months. Modelling it as permanent is what guarantees
    CANCEL is unambiguously correct for that group; a recovering variant would
    make the stopping decision harder and is a reasonable next refinement.
-8. **Five of six failure classes are generated.** `insufficient_funds` is the
-   bulk of the population, with bank downtime, expired cards, revoked consent
-   and AFA refusals alongside it. `ambiguous_decline` is named in `rules.py`
-   and validated against, but nothing emits it yet.
+8. **Five of six failure classes are generated by default.** `insufficient_funds`
+   is the bulk of the population, with bank downtime, expired cards, revoked
+   consent and AFA refusals alongside it. The sixth, `ambiguous_decline`, is
+   fully implemented but is emitted only when `generate_dataset` is called with
+   `ambiguity_share > 0`. It is off by default deliberately: turning it on
+   rewrites the return codes of failures that already existed, so every figure
+   measured on the five-class book would move. Class 6's own numbers are
+   measured at `--share 0.35` and reported separately.
 9. **`Customer.otp_responsiveness` is drawn LAST in `make_population`.** Every
    draw shares one RNG stream, so inserting a new one anywhere earlier shifts
    every subsequent draw and silently changes salaries, burn rates and balance
@@ -2040,10 +2079,12 @@ These were choices the brief left open. Each is easy to change:
 - **Legacy recovery is 38.3 % mean but ranges 26.0–50.0 % across seeds.** The
   mean is on target; the per-seed spread is wide because it is a proportion over
   only ~85 failures. Larger `n` tightens it. Quote the multi-seed mean.
-- **`ambiguous_decline` is the last stub.** It is declared in `rules.py`, routed
-  to a handler that reports `implemented = False`, and produces no numbers.
-  Nothing emits code `05` yet, and its cautious-single-retry rule is drafted in
-  `classes/stubs.py` but not wired to the engine.
+- **Class 6 is off by default and its book-wide worth is unresolved.** The
+  taxonomy itself is closed — nothing is stubbed. What is open is the decision
+  to leave `ambiguity_share` at 0.0, and the fact that the two measurements of
+  the masking posterior disagree in sign: isolated on the class it costs money,
+  book-wide through `run_ablations.py --ambiguity-share 0.35` removing it comes
+  out worse. Not consistent, so nothing is claimed either way.
 - **The money equation still has no time preference.** `daily_discount` defaults
   to 0.0 and is measured in `scripts/run_downtime.py`. It is the highest-value
   change outstanding, and turning it on would move every number in this file, so

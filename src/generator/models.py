@@ -221,8 +221,8 @@ class FailureEvent(BaseModel):
     @field_validator("failure_class")
     @classmethod
     def _known_failure_class(cls, v: str) -> str:
-        # Only insufficient_funds is generated today, but the taxonomy is
-        # fixed: a typo in a future class module should fail loudly here.
+        # The taxonomy is closed and every class has a handler, so a typo in a
+        # class module should fail loudly here rather than route to nothing.
         if v not in rules.FAILURE_CLASSES:
             raise ValueError(f"unknown failure class: {v!r}")
         return v

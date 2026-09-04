@@ -17,9 +17,12 @@ efficiency finding. Presenting against a mandate whose consent was withdrawn
 under RBI Sec 6(c) is a REGULATORY BREACH, and a count of breaches is a
 different kind of statement from a count of wasted rupees.
 
-Five of the six classes are now generated and modelled. Only
-``ambiguous_decline`` remains a stub; it is not generated and no numbers are
-reported for it.
+All six classes are modelled. Five of them are GENERATED here:
+``ambiguous_decline`` is emitted only when ``ambiguity_share`` is non-zero,
+which is not the default, so it contributes no episodes to this run and no
+numbers are reported for it below. That is a property of the book, not a gap in
+the taxonomy - see ``scripts/run_ambiguous.py`` for the class measured at
+``--share 0.35``.
 
 MONEY IS REPORTED ALONGSIDE RATE throughout, and that became necessary with
 class 5 rather than being tidiness. AFA failures occur only above the RBI
@@ -178,7 +181,7 @@ def main() -> None:
     print("  failure mix")
     for name in classes:
         share = tallies["legacy_fixed"][name].episodes / total_failures
-        flag = "" if name in implemented_classes() else "   (stub - not generated)"
+        flag = "" if name in implemented_classes() else "   (no model behind it)"
         print(f"    {name:<26} {share:>6.1%}  "
               f"({tallies['legacy_fixed'][name].episodes}){flag}")
 

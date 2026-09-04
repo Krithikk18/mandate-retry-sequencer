@@ -365,7 +365,7 @@ find them anyway.
    that was luck rather than design". If outages outlasted the notice period
    the same defect would have silently rewritten every ablation verdict, and
    nothing would have caught it: a contaminated run is perfectly reproducible,
-   so scripts/verify_docs.py certified those numbers 185/185.
+   so scripts/verify_docs.py certified every one of those numbers.
 
    What now prevents recurrence is structural, not vigilance:
    SequencerPolicy.for_dataset mirrors OraclePolicy.for_dataset,
@@ -382,28 +382,63 @@ find them anyway.
 
    A 05 hides the QUESTION rather than a parameter, so the handler is a fitted
    posterior over the other five classes and the success probability is their
-   mixture. The inference works. Measured at masking share 0.35, 20 seeds:
-   naming the true class behind a masked 05 is right 79.3% of the time
-   (138/174), and the fit tracks the generator when the generator is perturbed
-   - which is the anti-self-fulfilment test the class ships on.
+   mixture. The inference is CALIBRATED: the fit tracks the generator when the
+   generator is perturbed - risk-block share 0.05 to 0.55 moves permanent_block
+   mass 0.038 to 0.735 - which is the anti-self-fulfilment test the class ships
+   on, and nothing in masking.py reads the generator's mixture.
+
+   Calibration is the only claim made for it. This file previously also quoted
+   a 79.3% top-1 accuracy for naming the true class behind a masked 05; that
+   number is withdrawn. A per-issuer posterior does not take the episode, so
+   its argmax is constant within an issuer and cannot discriminate between
+   two failures on the same bank: scored per episode it returned the base
+   rate of its own denominator, and an always-guess-insufficient_funds
+   classifier tied with it exactly. run_ambiguous.py now prints that control
+   arm beside it so the number cannot be quoted as an accuracy again, and
+   README.md carries the full reasoning under "What is deliberately not
+   claimed here". Calibration and discrimination are different claims; only
+   the first is made.
 
    And it loses money. Against `no_masking_posterior`, which prices every 05
-   as a plain balance failure:
+   as a plain balance failure. Measured at masking share 0.35, 20 seeds:
 
-       money      1,015,598  vs  1,045,200   posterior costs Rs 29,602
-       net value -2,652,701  vs -2,162,173   posterior costs Rs 490,528
-       recovery       78.3%  vs      81.7%   posterior costs 3.4 points
-       notices          240  vs        735
-       opt-outs           4  vs         12
+       money      1,040,373  vs  1,045,200   posterior costs Rs 4,827
+       net value -2,256,868  vs -2,162,173   posterior costs Rs 94,695
+       recovery       80.9%  vs      81.7%   posterior costs 0.8 points
+       notices          517  vs        735
+       opt-outs           8  vs         12
+
+   THOSE FIGURES ARE THE SECOND ONES. The first run of this table was wrong,
+   and the defect is worth more than the result. run_ambiguous.py let each
+   policy fit its posterior from only the episodes it PLAYED - the customers
+   who had a 05 - which is a badly selected sample, because a permanently
+   blocked mandate emits an unexplained decline every cycle while a transient
+   one emits exactly one. Blocked customers were therefore massively
+   over-represented. On seed 1 the biased fit put 0.90 mass on permanent_block
+   against 0.64 fitted from the whole book, and it made the posterior look
+   roughly five times worse than it is:
+
+       WRONG (selection-biased fit, do not quote)      CORRECT
+       net value cost   Rs 490,528                     Rs 94,695
+       money cost       Rs  29,602                     Rs  4,827
+       recovery cost    3.4 points                     0.8 points
+       notices          240                            517
+
+   The policy now accepts a pre-fitted model, exactly as it already did for
+   BankHealthModel, and a deployment would never have had the bias: a PSP holds
+   its entire decline history, not just today's work queue. Every figure in the
+   correct column is pinned by scripts/verify_docs.py under the `c6.ctx.*`
+   claim ids, so the two documents can no longer drift apart on this table -
+   which is exactly how the wrong column survived here after README.md had
+   already been corrected.
 
    The mechanism is legible. The posterior puts 43.8% of its mass on a
    permanent block, which is roughly right - 70.6% of masked failures really
    are 05-native, block or glitch - so the mixture prices most dates low and
-   the agent HOLDS. That avoids two thirds of the opt-outs and two thirds of
-   the notices, and it is still the worse trade, because holding is not free:
-   twelve cycles of carrying cost plus natural attrition destroys more LTV
-   than the opt-outs it avoided. The agent swapped a fast way of losing a
-   mandate for a slow one.
+   the agent HOLDS. That avoids a third of the opt-outs and 30% of the notices,
+   and it is still the worse trade, because holding is not free: twelve cycles
+   of carrying cost plus natural attrition destroys more LTV than the opt-outs
+   it avoided. The agent swapped a fast way of losing a mandate for a slow one.
 
    This is the third result of its shape in the project and the pattern is
    now the point rather than an embarrassment: the bank-health signal is a

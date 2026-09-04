@@ -627,12 +627,27 @@ def load_dataset(path: str | Path) -> Dataset:
 
     frames = {name: read(src / f"{name}.{fmt}") for name in _TABLES}
 
+    def nullable(frame: pd.DataFrame, values: list) -> pd.Series:
+        """A column of Python objects, with ``None`` surviving ``to_dict``.
+
+        Assigning a plain list lets pandas infer the dtype, and pandas 3 infers
+        a list of strings-and-Nones as ``StringDtype`` whose NA sentinel is
+        ``nan``, not ``None``. The coercion below then looks correct and is
+        silently undone by ``to_dict("records")``, which hands pydantic a float
+        where a ``str | None`` is declared. Forcing object dtype pins the
+        sentinel we actually round-trip, on either major version.
+
+        ``frame``'s index is carried through so the assignment aligns rather
+        than reindexing against a fresh RangeIndex.
+        """
+        return pd.Series(values, index=frame.index, dtype=object)
+
     history = frames["payment_history"]
     history["attempt_date"] = pd.to_datetime(history["attempt_date"]).dt.date
     history["succeeded"] = history["succeeded"].astype(bool)
-    history["return_code"] = [
-        None if pd.isna(code) else str(code) for code in history["return_code"]
-    ]
+    history["return_code"] = nullable(
+        history, [None if pd.isna(code) else str(code) for code in history["return_code"]]
+    )
 
     events = frames["failure_events"]
     for column in ("cycle_start_date", "original_debit_date"):
@@ -645,10 +660,13 @@ def load_dataset(path: str | Path) -> Dataset:
     people = frames["customers"]
     for column in ("income_shock_start", "mandate_dead_from"):
         parsed = pd.to_datetime(people[column], errors="coerce")
-        people[column] = [None if pd.isna(value) else value.date() for value in parsed]
-    people["mandate_dead_class"] = [
-        None if pd.isna(value) else str(value) for value in people["mandate_dead_class"]
-    ]
+        people[column] = nullable(
+            people, [None if pd.isna(value) else value.date() for value in parsed]
+        )
+    people["mandate_dead_class"] = nullable(
+        people,
+        [None if pd.isna(value) else str(value) for value in people["mandate_dead_class"]],
+    )
 
     balances = frames["balance_series"]
     balances["date"] = pd.to_datetime(balances["date"])

@@ -58,7 +58,13 @@ def route_return_code(return_code: str | None) -> FailureClassHandler:
 
 
 def implemented_classes() -> set[str]:
-    """Classes with a real model behind them. The rest are stubs."""
+    """Classes with a real model behind them.
+
+    Every class in the taxonomy has one today, so this equals
+    ``rules.FAILURE_CLASSES`` and ``tests/test_classes.py`` asserts it. It
+    stays a computed set rather than a constant so that adding a class
+    without a model is visible instead of assumed.
+    """
     return {name for name, h in _HANDLERS.items() if h.implemented}
 
 

@@ -23,7 +23,9 @@ Four things are reported:
 
 1. the realised mix - how many failures are masked, and what was really behind
    them, which only the truth side knows
-2. whether the fitted posterior is any good, scored against that truth
+2. whether the fitted posterior is CALIBRATED - what it believes against
+   what the generator actually did, plus the base-rate control that shows
+   why its argmax is not an accuracy result
 3. money and recovery: legacy, sequencer, ceiling, and the no_masking_posterior
    ablation that treats every 05 as a plain balance failure
 4. the permanent-block waste: presentments spent on mandates that were never
@@ -139,7 +141,7 @@ def main() -> None:
     book_failures = 0
     masked_failures = 0
     true_behind: dict[str, int] = {}
-    posterior_hits = posterior_total = 0
+    posterior_hits = posterior_total = base_rate_hits = 0
     fitted_posteriors: list[dict[str, float]] = []
 
     for seed in seeds:
@@ -162,9 +164,18 @@ def main() -> None:
         fitted = MaskingModel.from_history(view.payment_history, bank_of)
         fitted_posteriors.append(fitted.posterior())
 
-        # Score the posterior against the truth: for each masked failure whose
-        # true class the agent could in principle have named, did the posterior
-        # put its highest mass on the right one?
+        # Score the posterior's argmax against the truth, AND score a classifier
+        # that ignores the posterior entirely and always answers with the book's
+        # commonest cause. The second number is the point.
+        #
+        # This block used to be reported as a "top-1 accuracy" and it is not one.
+        # `fitted.posterior(bank)` does not take the event, so within an issuer
+        # the argmax is a CONSTANT: it cannot discriminate between two episodes
+        # on the same bank, and measuring it per episode measures the base rate
+        # of the denominator. The always-guess arm proves that rather than
+        # asserting it - the two scores tie exactly - which is why no accuracy
+        # figure appears in README.md or CONTEXT.md and why none should be added
+        # back without an episode-conditional model behind it.
         for event in events:
             truth = event.failure_class
             if truth == rules.FAILURE_CLASS_AMBIGUOUS:
@@ -179,6 +190,8 @@ def main() -> None:
             posterior_total += 1
             if named and max(named, key=named.get) == truth:
                 posterior_hits += 1
+            if truth == rules.FAILURE_CLASS_INSUFFICIENT_FUNDS:
+                base_rate_hits += 1
 
         # PRIMED FROM THE WHOLE BOOK, which matters more than it looks.
         # Letting each policy accumulate evidence only from the episodes it
@@ -262,9 +275,24 @@ def main() -> None:
     print("  tests/test_ambiguous.py asserts directly.")
     if posterior_total:
         print()
-        print(f"  Top-1 accuracy naming the true class behind a MASKED 05: "
-              f"{posterior_hits / posterior_total:.1%} "
+        print("  NOT AN ACCURACY RESULT, and reported here so nobody quotes it")
+        print("  as one. The posterior is fitted PER ISSUER and does not take")
+        print("  the episode, so its argmax is constant within a bank. Scored")
+        print(f"  per episode over {posterior_total:,} masked failures whose true")
+        print("  class is one of the five named ones:")
+        print()
+        print(f"    posterior argmax                 "
+              f"{posterior_hits / posterior_total:>6.1%}  "
               f"({posterior_hits:,}/{posterior_total:,})")
+        print(f"    always answer insufficient_funds "
+              f"{base_rate_hits / posterior_total:>6.1%}  "
+              f"({base_rate_hits:,}/{posterior_total:,})")
+        print()
+        print("  A classifier that ignores the model entirely scores the same.")
+        print("  What the posterior is FOR is pricing a date, which is measured")
+        print("  in rupees below; what is claimed for it is CALIBRATION, which")
+        print("  tests/test_ambiguous.py tests directly by perturbing the")
+        print("  generator's mixture and checking the fit follows.")
 
     # --- 3. money and recovery ----------------------------------------------
     print(f"\n{RULE}\n3. MONEY RECOVERED (lead with this)\n{RULE}")

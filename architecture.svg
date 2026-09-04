@@ -1,0 +1,201 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1120" width="1400" height="1120" font-family="Helvetica, Arial, sans-serif" xmlns:c2pa="http://c2pa.org/manifest"><metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTo5NDcwYjlhMy01NTJkLTQ0YjQtYTI1NS1iNWFjZWI5MWM3YmYAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaJswT5FZqhVyXnqDGouTH4QAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDpjMzQ2ODE0OS0xZTQ0LTQwNTYtOWEwOC04OWM0MDRkZjk5YzNscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNogO22wnpbdpn4poSNqcxmvAAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggPGjRKCbTS7Cey16ba7FuQ9BzDRKm5FEypA7uoMXiOGGkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaLThZcwEJBjrlcsROQwXm8UAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRNAAAAAAAAAAAAAAAAAGRoYXNoWCB914rpHT430Kom0tgD90YyDo+Wb41+za1Pjih/hyfqNGRuYW1lbmp1bWJmIG1hbmlmZXN0amV4Y2x1c2lvbnOBomVzdGFydBjFZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjk0NzBiOWEzLTU1MmQtNDRiNC1hMjU1LWI1YWNlYjkxYzdiZi9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjY5MDU2M2Q1LTUyN2EtNDNlNS05MDk0LTA3NTM5OGRhODc5OXJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCA8aNEoJtNLsJ7LXptrsW5D0HMNEqbkUTKkDu6gxeI4YaJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggRzXaKeDkOXK0jxgBGqkEUbxpG70cCkmj34pbiPXNv7KiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFgg8NM/LQsISRg0k1mPaBDYp+v33iPWQbRF2tiulm8IZlt0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQMt77ZVax7xarxZYUmF3EXyc3voPOQMXdZPYNWnByXgWNea2h2w8k9huTIHX8/EqUaKppISc2b7pVNcynM3YdWQ=</c2pa:manifest></metadata>
+  <style>
+    .bandtitle { font-size: 13.5px; font-weight: 700; letter-spacing: 1.4px; text-anchor: middle; }
+    .boxtitle  { font-size: 12.5px; font-weight: 700; }
+    .boxsub    { font-size: 10.5px; }
+    .mono      { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; }
+    .cap       { font-size: 11px; fill: #52525B; text-anchor: middle; font-style: italic; }
+  </style>
+
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3F3F46"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="1120" fill="#FFFFFF"/>
+
+  <!-- ============ TITLE ============ -->
+  <text x="700" y="34" font-size="23" font-weight="700" fill="#18181B" text-anchor="middle">Mandate Retry Sequencer &#8212; architecture</text>
+  <text x="700" y="57" font-size="13" fill="#52525B" text-anchor="middle">Cost-aware sequential decision policy for failed recurring auto-debits on Indian e-mandates</text>
+
+  <!-- ============ BAND 1 : REGULATION ============ -->
+  <rect x="50" y="75" width="1310" height="130" rx="6" fill="#FDF6E3" stroke="#B8860B" stroke-width="1.6"/>
+  <text x="705" y="99" class="bandtitle" fill="#7A5A00">RBI / NPCI CONSTRAINTS &#8212; ENFORCED, NOT LEARNED</text>
+
+  <rect x="67"  y="110" width="310" height="60" rx="4" fill="#FFFFFF" stroke="#D6B25E" stroke-width="1.2"/>
+  <text x="80"  y="128" class="boxtitle" fill="#6B4E00">RBI e-mandate framework</text>
+  <text x="80"  y="145" class="boxsub"   fill="#52525B">24h pre-debit notification required</text>
+  <text x="80"  y="160" class="boxsub"   fill="#52525B">before EVERY attempt</text>
+
+  <rect x="389" y="110" width="310" height="60" rx="4" fill="#FFFFFF" stroke="#D6B25E" stroke-width="1.2"/>
+  <text x="402" y="128" class="boxtitle" fill="#6B4E00">Mandatory opt-out &#8212; Sec 8(a)</text>
+  <text x="402" y="145" class="boxsub"   fill="#52525B">every notification legally carries</text>
+  <text x="402" y="160" class="boxsub"   fill="#52525B">an opt-out link</text>
+
+  <rect x="711" y="110" width="310" height="60" rx="4" fill="#FFFFFF" stroke="#D6B25E" stroke-width="1.2"/>
+  <text x="724" y="128" class="boxtitle" fill="#6B4E00">NPCI attempt ceiling</text>
+  <text x="724" y="145" class="boxsub"   fill="#52525B">max 4 presentment attempts</text>
+  <text x="724" y="160" class="boxsub"   fill="#52525B">per billing cycle</text>
+
+  <rect x="1033" y="110" width="310" height="60" rx="4" fill="#FFFFFF" stroke="#D6B25E" stroke-width="1.2"/>
+  <text x="1046" y="128" class="boxtitle" fill="#6B4E00">Execution window</text>
+  <text x="1046" y="145" class="boxsub"   fill="#52525B">presentments permitted only</text>
+  <text x="1046" y="160" class="boxsub"   fill="#52525B">between 00:00 and 07:00 IST</text>
+
+  <text x="705" y="191" class="cap">Constraints are checked before a presentment is committed. Violations are counted and reported, never silently dropped.</text>
+
+  <!-- ============ BAND 2 : GENERATOR ============ -->
+  <rect x="50" y="225" width="1310" height="190" rx="6" fill="#EEF4FB" stroke="#4A7BB5" stroke-width="1.6"/>
+  <text x="705" y="249" class="bandtitle" fill="#1E4470">GENERATOR &#8212; SYNTHETIC BOOK, KNOWS GROUND TRUTH</text>
+
+  <rect x="67"  y="262" width="310" height="58" rx="4" fill="#FFFFFF" stroke="#8FB3D9" stroke-width="1.2"/>
+  <text x="80"  y="285" class="boxtitle" fill="#1E4470">Customer population</text>
+  <text x="80"  y="304" class="boxsub mono" fill="#4A7BB5">generator/population.py</text>
+
+  <rect x="389" y="262" width="310" height="58" rx="4" fill="#FFFFFF" stroke="#8FB3D9" stroke-width="1.2"/>
+  <text x="402" y="285" class="boxtitle" fill="#1E4470">Balance &amp; payday process</text>
+  <text x="402" y="304" class="boxsub mono" fill="#4A7BB5">generator/balance.py</text>
+
+  <rect x="711" y="262" width="310" height="58" rx="4" fill="#FFFFFF" stroke="#8FB3D9" stroke-width="1.2"/>
+  <text x="724" y="285" class="boxtitle" fill="#1E4470">Bank outage process</text>
+  <text x="724" y="304" class="boxsub mono" fill="#4A7BB5">generator/banks.py</text>
+
+  <rect x="1033" y="262" width="310" height="58" rx="4" fill="#FFFFFF" stroke="#8FB3D9" stroke-width="1.2"/>
+  <text x="1046" y="285" class="boxtitle" fill="#1E4470">Opt-out hazard</text>
+  <text x="1046" y="304" class="boxsub mono" fill="#4A7BB5">generator/optout.py</text>
+
+  <rect x="67"  y="330" width="310" height="58" rx="4" fill="#FFFFFF" stroke="#8FB3D9" stroke-width="1.2"/>
+  <text x="80"  y="353" class="boxtitle" fill="#1E4470">AFA challenge</text>
+  <text x="80"  y="372" class="boxsub mono" fill="#4A7BB5">generator/afa.py</text>
+
+  <rect x="389" y="330" width="310" height="58" rx="4" fill="#FFFFFF" stroke="#8FB3D9" stroke-width="1.2"/>
+  <text x="402" y="353" class="boxtitle" fill="#1E4470">Ambiguous-decline masking</text>
+  <text x="402" y="372" class="boxsub mono" fill="#4A7BB5">generator/ambiguous.py</text>
+
+  <rect x="711" y="330" width="310" height="58" rx="4" fill="#FFFFFF" stroke="#8FB3D9" stroke-width="1.2"/>
+  <text x="724" y="353" class="boxtitle" fill="#1E4470">Cost &amp; regulatory constants</text>
+  <text x="724" y="372" class="boxsub mono" fill="#4A7BB5">generator/rules.py</text>
+
+  <text x="1046" y="349" font-size="11.5" font-weight="700" fill="#1E4470">Emits per episode:</text>
+  <text x="1046" y="367" font-size="11" fill="#52525B">a failed mandate + an ISO return code,</text>
+  <text x="1046" y="382" font-size="11" fill="#52525B">and nothing else the agent may read.</text>
+
+  <!-- arrow: generator -> policy -->
+  <line x1="162" y1="415" x2="162" y2="556" stroke="#3F3F46" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="176" y="486" font-size="11.5" font-weight="700" fill="#27272A">failed mandate</text>
+  <text x="176" y="502" font-size="11.5" font-weight="700" fill="#27272A">+ ISO return code</text>
+
+  <!-- ============ BAND 3 : POLICY ============ -->
+  <rect x="50" y="440" width="1310" height="430" rx="6" fill="#EEF7F0" stroke="#4A9962" stroke-width="1.6"/>
+  <text x="705" y="464" class="bandtitle" fill="#1B5E33">POLICY / AGENT &#8212; SEES ONLY WHAT A REAL PSP WOULD SEE</text>
+
+  <!-- router -->
+  <rect x="67" y="560" width="190" height="80" rx="4" fill="#FFFFFF" stroke="#7FBF95" stroke-width="1.4"/>
+  <text x="162" y="590" class="boxtitle" fill="#1B5E33" text-anchor="middle">Router</text>
+  <text x="162" y="609" class="boxsub mono" fill="#4A9962" text-anchor="middle">policy/router.py</text>
+  <text x="162" y="627" class="boxsub" fill="#71717A" text-anchor="middle">code &#8594; failure class</text>
+
+  <!-- router fan-out bus -->
+  <line x1="257" y1="600" x2="275" y2="600" stroke="#3F3F46" stroke-width="1.4"/>
+  <line x1="275" y1="515" x2="275" y2="815" stroke="#3F3F46" stroke-width="1.4"/>
+  <line x1="275" y1="515" x2="290" y2="515" stroke="#3F3F46" stroke-width="1.4" marker-end="url(#ah)"/>
+  <line x1="275" y1="575" x2="290" y2="575" stroke="#3F3F46" stroke-width="1.4" marker-end="url(#ah)"/>
+  <line x1="275" y1="635" x2="290" y2="635" stroke="#3F3F46" stroke-width="1.4" marker-end="url(#ah)"/>
+  <line x1="275" y1="695" x2="290" y2="695" stroke="#3F3F46" stroke-width="1.4" marker-end="url(#ah)"/>
+  <line x1="275" y1="755" x2="290" y2="755" stroke="#3F3F46" stroke-width="1.4" marker-end="url(#ah)"/>
+  <line x1="275" y1="815" x2="290" y2="815" stroke="#3F3F46" stroke-width="1.4" marker-end="url(#ah)"/>
+
+  <!-- six handlers -->
+  <rect x="292" y="490" width="438" height="50" rx="4" fill="#FFFFFF" stroke="#7FBF95" stroke-width="1.2"/>
+  <text x="305" y="509" class="boxtitle" fill="#1B5E33">1 &#183; Insufficient funds &#8212; return code 04</text>
+  <text x="305" y="527" class="boxsub" fill="#52525B">payday posterior over the balance process &#8594; candidate dates</text>
+
+  <rect x="292" y="550" width="438" height="50" rx="4" fill="#FFFFFF" stroke="#7FBF95" stroke-width="1.2"/>
+  <text x="305" y="569" class="boxtitle" fill="#1B5E33">2 &#183; Bank / PSP downtime &#8212; return code 91</text>
+  <text x="305" y="587" class="boxsub" fill="#52525B">cross-customer bank-health signal, pooled across the book</text>
+
+  <rect x="292" y="610" width="438" height="50" rx="4" fill="#FFFFFF" stroke="#7FBF95" stroke-width="1.2"/>
+  <text x="305" y="629" class="boxtitle" fill="#1B5E33">3 &#183; Expired card &#8212; return code 54</text>
+  <text x="305" y="647" class="boxsub" fill="#52525B">never retry &#8212; escalate to re-collection of instrument</text>
+
+  <rect x="292" y="670" width="438" height="50" rx="4" fill="#FFFFFF" stroke="#7FBF95" stroke-width="1.2"/>
+  <text x="305" y="689" class="boxtitle" fill="#1B5E33">4 &#183; Revoked / customer opted out</text>
+  <text x="305" y="707" class="boxsub" fill="#52525B">never retry &#8212; further presentment is non-compliant</text>
+
+  <rect x="292" y="730" width="438" height="50" rx="4" fill="#FFFFFF" stroke="#7FBF95" stroke-width="1.2"/>
+  <text x="305" y="749" class="boxtitle" fill="#1B5E33">5 &#183; AFA incomplete</text>
+  <text x="305" y="767" class="boxsub" fill="#52525B">re-authentication path, not a balance problem</text>
+
+  <rect x="292" y="790" width="438" height="50" rx="4" fill="#FFFFFF" stroke="#7FBF95" stroke-width="1.2"/>
+  <text x="305" y="809" class="boxtitle" fill="#1B5E33">6 &#183; Ambiguous decline</text>
+  <text x="305" y="827" class="boxsub" fill="#52525B">masking posterior over the true underlying cause</text>
+
+  <!-- converge bus -->
+  <line x1="730" y1="515" x2="748" y2="515" stroke="#3F3F46" stroke-width="1.4"/>
+  <line x1="730" y1="575" x2="748" y2="575" stroke="#3F3F46" stroke-width="1.4"/>
+  <line x1="730" y1="635" x2="748" y2="635" stroke="#3F3F46" stroke-width="1.4"/>
+  <line x1="730" y1="695" x2="748" y2="695" stroke="#3F3F46" stroke-width="1.4"/>
+  <line x1="730" y1="755" x2="748" y2="755" stroke="#3F3F46" stroke-width="1.4"/>
+  <line x1="730" y1="815" x2="748" y2="815" stroke="#3F3F46" stroke-width="1.4"/>
+  <line x1="748" y1="515" x2="748" y2="815" stroke="#3F3F46" stroke-width="1.4"/>
+  <line x1="748" y1="665" x2="768" y2="665" stroke="#3F3F46" stroke-width="2" marker-end="url(#ah)"/>
+
+  <!-- decision engine -->
+  <rect x="770" y="490" width="573" height="350" rx="5" fill="#FFFFFF" stroke="#4A9962" stroke-width="1.8"/>
+  <text x="1056" y="518" font-size="14" font-weight="700" letter-spacing="1.2" fill="#1B5E33" text-anchor="middle">DECISION ENGINE</text>
+  <text x="1056" y="537" font-size="11" fill="#71717A" text-anchor="middle">one shared scorer &#8212; every handler proposes, this decides</text>
+
+  <rect x="795" y="551" width="523" height="126" rx="4" fill="#F7FAF8" stroke="#C8DED1" stroke-width="1"/>
+  <text x="814" y="578" class="mono" font-size="13.5" fill="#18181B">EV(date) =   P(clear) &#215; amount</text>
+  <text x="814" y="602" class="mono" font-size="13.5" fill="#18181B">           &#8722; processing fee</text>
+  <text x="814" y="626" class="mono" font-size="13.5" fill="#18181B">           &#8722; P(bounce) &#215; bounce charge</text>
+  <text x="814" y="650" class="mono" font-size="13.5" fill="#B91C1C">           &#8722; P(opt-out) &#215; customer LTV</text>
+  <text x="814" y="668" font-size="10" fill="#B91C1C">the term a fixed retry schedule cannot see</text>
+
+  <rect x="795" y="692" width="523" height="36" rx="18" fill="#EEF7F0" stroke="#7FBF95" stroke-width="1.2"/>
+  <text x="1056" y="715" font-size="12.5" font-weight="700" fill="#1B5E33" text-anchor="middle">RETRY &#183; WAIT &#183; HOLD &#183; CANCEL &#183; NUDGE</text>
+
+  <text x="1056" y="754" font-size="11.5" fill="#3F3F46" text-anchor="middle">Every decision emits a rupee-denominated reason &#8212; the audit trail.</text>
+  <text x="1056" y="782" font-size="11.5" font-weight="700" fill="#27272A" text-anchor="middle">Compliance re-checked before every commit:</text>
+  <text x="1056" y="801" font-size="11.5" fill="#3F3F46" text-anchor="middle">24h notice lead time &#183; 00:00&#8211;07:00 window &#183; attempt N of 4</text>
+  <text x="1056" y="825" font-size="10.5" fill="#71717A" font-style="italic" text-anchor="middle">A candidate that fails any check is never scored, not merely down-weighted.</text>
+
+  <!-- ============ INFORMATION BARRIER ============ -->
+  <line x1="50" y1="900" x2="1360" y2="900" stroke="#C0392B" stroke-width="4" stroke-dasharray="14 8"/>
+  <rect x="330" y="886" width="750" height="27" fill="#FFFFFF"/>
+  <text x="705" y="905" font-size="13" font-weight="700" letter-spacing="0.6" fill="#C0392B" text-anchor="middle">INFORMATION BARRIER &#8212; the oracle sees future balances, the agent never does</text>
+
+  <!-- ============ BAND 4 : EVALUATION ============ -->
+  <rect x="50" y="925" width="1310" height="150" rx="6" fill="#F4F4F5" stroke="#8A8A8F" stroke-width="1.6"/>
+  <text x="705" y="949" class="bandtitle" fill="#3F3F46">EVALUATION &#8212; OFFLINE ONLY, NEVER VISIBLE TO THE AGENT</text>
+
+  <rect x="67"  y="962" width="246" height="62" rx="4" fill="#FFFFFF" stroke="#B4B4B9" stroke-width="1.2"/>
+  <text x="80"  y="984" class="boxtitle" fill="#3F3F46">Simulator</text>
+  <text x="80"  y="1002" class="boxsub mono" fill="#71717A">evaluation/simulator.py</text>
+  <text x="80"  y="1016" class="boxsub" fill="#71717A">replays a policy over the book</text>
+
+  <rect x="325" y="962" width="246" height="62" rx="4" fill="#FFFFFF" stroke="#B4B4B9" stroke-width="1.2"/>
+  <text x="338" y="984" class="boxtitle" fill="#3F3F46">Economics</text>
+  <text x="338" y="1002" class="boxsub mono" fill="#71717A">evaluation/economics.py</text>
+  <text x="338" y="1016" class="boxsub" fill="#71717A">money, opt-outs, net value</text>
+
+  <rect x="583" y="962" width="246" height="62" rx="4" fill="#FFFFFF" stroke="#B4B4B9" stroke-width="1.2"/>
+  <text x="596" y="984" class="boxtitle" fill="#3F3F46">Oracle ceiling</text>
+  <text x="596" y="1002" class="boxsub mono" fill="#71717A">generator/oracle.py</text>
+  <text x="596" y="1016" class="boxsub" fill="#71717A">perfect-foresight upper bound</text>
+
+  <rect x="841" y="962" width="246" height="62" rx="4" fill="#FFFFFF" stroke="#B4B4B9" stroke-width="1.2"/>
+  <text x="854" y="984" class="boxtitle" fill="#3F3F46">Harness</text>
+  <text x="854" y="1002" class="boxsub mono" fill="#71717A">evaluation/harness.py</text>
+  <text x="854" y="1016" class="boxsub" fill="#71717A">20 seeds &#215; 500 customers</text>
+
+  <rect x="1099" y="962" width="244" height="62" rx="4" fill="#FFFFFF" stroke="#B4B4B9" stroke-width="1.2"/>
+  <text x="1112" y="984" class="boxtitle" fill="#3F3F46">Claim verifier</text>
+  <text x="1112" y="1002" class="boxsub mono" fill="#71717A">scripts/verify_docs.py</text>
+  <text x="1112" y="1016" class="boxsub" fill="#71717A">270 documented numbers</text>
+
+  <text x="705" y="1052" class="cap">The oracle is computed from ground truth the policy never receives. It bounds what was achievable; it informs no decision.</text>
+
+  <text x="700" y="1098" font-size="11" fill="#A1A1AA" text-anchor="middle">Data is synthetic by design &#8212; only a generated book yields the counterfactual every retry date not taken would have produced. Cost parameters are declared estimates.</text>
+</svg>

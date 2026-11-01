@@ -395,7 +395,7 @@ find them anyway.
    rate of its own denominator, and an always-guess-insufficient_funds
    classifier tied with it exactly. run_ambiguous.py now prints that control
    arm beside it so the number cannot be quoted as an accuracy again, and
-   README.md carries the full reasoning under "What is deliberately not
+   docs/DETAILS.md carries the full reasoning under "What is deliberately not
    claimed here". Calibration and discrimination are different claims; only
    the first is made.
 
@@ -429,7 +429,7 @@ find them anyway.
    its entire decline history, not just today's work queue. Every figure in the
    correct column is pinned by scripts/verify_docs.py under the `c6.ctx.*`
    claim ids, so the two documents can no longer drift apart on this table -
-   which is exactly how the wrong column survived here after README.md had
+   which is exactly how the wrong column survived here after docs/DETAILS.md had
    already been corrected.
 
    The mechanism is legible. The posterior puts 43.8% of its mass on a
@@ -496,7 +496,7 @@ the classes covered for barely more than the effort of one.
 - Every claim must have a number
 - Every number must come from a reproducible run
 - ENFORCED, not merely stated. `scripts/verify_docs.py` maps every number in
-  README.md and this file to the script and field that produces it, re-runs
+  docs/DETAILS.md and this file to the script and field that produces it, re-runs
   those scripts at 20 seeds, and fails with a file/line/expected/actual diff
   on any mismatch. Run it before any release; `pytest -m slow` runs it too.
   It was written because this rule had gone unenforced: adding class 5 moved

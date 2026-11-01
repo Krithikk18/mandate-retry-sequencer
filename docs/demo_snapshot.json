@@ -1,0 +1,1450 @@
+{
+ "generated_by": "scripts/export_demo_snapshot.py",
+ "command": "python scripts/export_demo_snapshot.py --seeds 8 --n 400 --out docs/demo_snapshot.json",
+ "git_commit": "872c0a7",
+ "schema_version": 1,
+ "policy_order": [
+  "legacy_fixed",
+  "sequencer",
+  "oracle_ceiling"
+ ],
+ "policy_labels": {
+  "legacy_fixed": "Legacy fixed schedule",
+  "sequencer": "Sequencer",
+  "oracle_ceiling": "Oracle ceiling"
+ },
+ "rules": {
+  "max_attempts_per_cycle": 4,
+  "pre_debit_notice_hours": 24,
+  "legacy_offsets": [
+   2,
+   4,
+   7
+  ],
+  "nach_bounce_charge": 500.0
+ },
+ "cost_note": "Processing fees, carrying cost and goodwill are documented estimates, not Razorpay figures.",
+ "headline": {
+  "source_script": "run_headline.py",
+  "fingerprint": "f5fe671aac957e05",
+  "seeds": 20,
+  "n_customers": 500,
+  "total_failures": 1709,
+  "rates": {
+   "legacy_fixed": 0.36141210928326173,
+   "sequencer": 0.5934241870621089,
+   "oracle_ceiling": 0.689757725703637
+  },
+  "money": {
+   "legacy_fixed": 114696.8,
+   "sequencer": 191982.4,
+   "oracle_ceiling": 234227.4
+  },
+  "headroom_captured": 0.7054025857538009
+ },
+ "scenarios": [
+  {
+   "key": "insufficient_funds",
+   "title": "Insufficient funds",
+   "blurb": "The account was short on the debit date. The money is not gone - it arrives on payday. The only question is which date to ask on.",
+   "base_rate": {
+    "episodes_scanned": 419,
+    "qualified": 118,
+    "sequencer_ahead": 279,
+    "tied": 54,
+    "legacy_ahead": 86,
+    "selection": "median qualifying episode by net-value delta"
+   },
+   "seed": 6,
+   "customer_id": "CUST_0165",
+   "return_code": "04",
+   "original_debit_date": "2026-07-24",
+   "cycle_end_date": "2026-08-23",
+   "verify_command": "python scripts/show_audit.py --customer CUST_0165 --seed 6 --n 400",
+   "customer": {
+    "customer_id": "CUST_0165",
+    "subscription_amount": 1313.0,
+    "rail": "nach",
+    "debit_day_of_month": 24,
+    "tenure_months": 4,
+    "annual_ltv": 15756.0,
+    "bank_id": "SBI",
+    "bounce_charge": 500.0
+   },
+   "metric": {
+    "field": "recovered_amount",
+    "label": "Money recovered",
+    "unit": "rupees",
+    "better": "higher",
+    "note": "The fixed day-2/4/7 schedule cannot reach a payday that lands further out than day 7.",
+    "values": {
+     "legacy_fixed": 0.0,
+     "sequencer": 1313.0,
+     "oracle_ceiling": 1313.0
+    }
+   },
+   "policies": {
+    "legacy_fixed": {
+     "policy": "legacy_fixed",
+     "outcome": "CANCELLED",
+     "recovered_amount": 0.0,
+     "attempts_used": 4,
+     "notifications_sent": 3,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 2000.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 0.0,
+     "ltv_lost": 15756.0,
+     "net_value": -17816.0,
+     "days_to_resolution": 7,
+     "nudges_sent": 0,
+     "retry_dates": [
+      "2026-07-26",
+      "2026-07-28",
+      "2026-07-31"
+     ],
+     "steps": [
+      {
+       "day": "2026-07-24",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-07-26",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "fixed offset from original failure",
+        "offset_days": 2,
+        "retries_made": 0,
+        "attempts_remaining": 3,
+        "skipped_offsets": [],
+        "payday_considered": false,
+        "optout_cost_considered": false
+       }
+      },
+      {
+       "day": "2026-07-26",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-07-26",
+       "retry_time": null,
+       "event": "debit failed, code 04",
+       "attempts_used": 2,
+       "notifications_sent": 1,
+       "reasoning": {}
+      },
+      {
+       "day": "2026-07-26",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-07-28",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 2,
+       "notifications_sent": 1,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "fixed offset from original failure",
+        "offset_days": 4,
+        "retries_made": 1,
+        "attempts_remaining": 2,
+        "skipped_offsets": [],
+        "payday_considered": false,
+        "optout_cost_considered": false
+       }
+      },
+      {
+       "day": "2026-07-28",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-07-28",
+       "retry_time": null,
+       "event": "debit failed, code 04",
+       "attempts_used": 3,
+       "notifications_sent": 2,
+       "reasoning": {}
+      },
+      {
+       "day": "2026-07-28",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-07-31",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 3,
+       "notifications_sent": 2,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "fixed offset from original failure",
+        "offset_days": 7,
+        "retries_made": 2,
+        "attempts_remaining": 1,
+        "skipped_offsets": [],
+        "payday_considered": false,
+        "optout_cost_considered": false
+       }
+      },
+      {
+       "day": "2026-07-31",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-07-31",
+       "retry_time": null,
+       "event": "debit failed, code 04",
+       "attempts_used": 4,
+       "notifications_sent": 3,
+       "reasoning": {}
+      },
+      {
+       "day": "2026-07-31",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "CANCEL",
+       "repeats": 1,
+       "retry_date": null,
+       "retry_time": null,
+       "event": "terminal",
+       "attempts_used": 4,
+       "notifications_sent": 3,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "schedule exhausted",
+        "retries_made": 3,
+        "offsets": [
+         2,
+         4,
+         7
+        ],
+        "skipped_offsets": [],
+        "attempts_remaining": 0
+       }
+      }
+     ]
+    },
+    "sequencer": {
+     "policy": "sequencer",
+     "outcome": "RECOVERED",
+     "recovered_amount": 1313.0,
+     "attempts_used": 2,
+     "notifications_sent": 1,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 500.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 15756.0,
+     "ltv_lost": 0.0,
+     "net_value": 783.0,
+     "days_to_resolution": 12,
+     "nudges_sent": 0,
+     "retry_dates": [
+      "2026-08-05"
+     ],
+     "steps": [
+      {
+       "day": "2026-07-24",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "WAIT",
+       "repeats": 11,
+       "retry_date": null,
+       "retry_time": null,
+       "event": "",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "sequencer",
+        "shock_probability": 0.05,
+        "payday_mode": 1,
+        "payday_confidence": 0.6304,
+        "attempts_remaining": 3,
+        "notifications_sent": 0,
+        "days_since_failure": 0,
+        "payday_tier": 2,
+        "candidates": [
+         {
+          "date": "2026-08-05",
+          "days_after_failure": 12,
+          "p_clear": 0.8584,
+          "p_optout": 0.0248,
+          "expected_recovery": 1127.04,
+          "processing_cost": 15.0,
+          "expected_bounce": 70.81,
+          "expected_churn": 391.33,
+          "value": 649.9
+         },
+         {
+          "date": "2026-08-07",
+          "days_after_failure": 14,
+          "p_clear": 0.8528,
+          "p_optout": 0.0243,
+          "expected_recovery": 1119.74,
+          "processing_cost": 15.0,
+          "expected_bounce": 73.59,
+          "expected_churn": 382.18,
+          "value": 648.97
+         },
+         {
+          "date": "2026-08-06",
+          "days_after_failure": 13,
+          "p_clear": 0.8509,
+          "p_optout": 0.0245,
+          "expected_recovery": 1117.27,
+          "processing_cost": 15.0,
+          "expected_bounce": 74.54,
+          "expected_churn": 386.43,
+          "value": 641.3
+         },
+         {
+          "date": "2026-08-08",
+          "days_after_failure": 15,
+          "p_clear": 0.8417,
+          "p_optout": 0.024,
+          "expected_recovery": 1105.2,
+          "processing_cost": 15.0,
+          "expected_bounce": 79.13,
+          "expected_churn": 378.5,
+          "value": 632.57
+         },
+         {
+          "date": "2026-08-09",
+          "days_after_failure": 16,
+          "p_clear": 0.8268,
+          "p_optout": 0.0238,
+          "expected_recovery": 1085.56,
+          "processing_cost": 15.0,
+          "expected_bounce": 86.61,
+          "expected_churn": 375.31,
+          "value": 608.65
+         }
+        ],
+        "binding_constraints": [],
+        "chosen_p_clear": 0.8584,
+        "chosen_p_optout": 0.0248,
+        "rule": "best date is not yet due for commitment",
+        "would_present_on": "2026-08-05",
+        "commit_on": "2026-08-04"
+       }
+      },
+      {
+       "day": "2026-08-04",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-08-05",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "sequencer",
+        "shock_probability": 0.05,
+        "payday_mode": 1,
+        "payday_confidence": 0.6304,
+        "attempts_remaining": 3,
+        "notifications_sent": 0,
+        "days_since_failure": 11,
+        "payday_tier": 2,
+        "candidates": [
+         {
+          "date": "2026-08-05",
+          "days_after_failure": 12,
+          "p_clear": 0.8584,
+          "p_optout": 0.0248,
+          "expected_recovery": 1127.04,
+          "processing_cost": 15.0,
+          "expected_bounce": 70.81,
+          "expected_churn": 391.33,
+          "value": 649.9
+         },
+         {
+          "date": "2026-08-07",
+          "days_after_failure": 14,
+          "p_clear": 0.8528,
+          "p_optout": 0.0243,
+          "expected_recovery": 1119.74,
+          "processing_cost": 15.0,
+          "expected_bounce": 73.59,
+          "expected_churn": 382.18,
+          "value": 648.97
+         },
+         {
+          "date": "2026-08-06",
+          "days_after_failure": 13,
+          "p_clear": 0.8509,
+          "p_optout": 0.0245,
+          "expected_recovery": 1117.27,
+          "processing_cost": 15.0,
+          "expected_bounce": 74.54,
+          "expected_churn": 386.43,
+          "value": 641.3
+         },
+         {
+          "date": "2026-08-08",
+          "days_after_failure": 15,
+          "p_clear": 0.8417,
+          "p_optout": 0.024,
+          "expected_recovery": 1105.2,
+          "processing_cost": 15.0,
+          "expected_bounce": 79.13,
+          "expected_churn": 378.5,
+          "value": 632.57
+         },
+         {
+          "date": "2026-08-09",
+          "days_after_failure": 16,
+          "p_clear": 0.8268,
+          "p_optout": 0.0238,
+          "expected_recovery": 1085.56,
+          "processing_cost": 15.0,
+          "expected_bounce": 86.61,
+          "expected_churn": 375.31,
+          "value": 608.65
+         }
+        ],
+        "binding_constraints": [],
+        "chosen_p_clear": 0.8584,
+        "chosen_p_optout": 0.0248,
+        "rule": "highest positive expected value in the cycle",
+        "chosen_value": 649.9
+       }
+      },
+      {
+       "day": "2026-08-05",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-08-05",
+       "retry_time": null,
+       "event": "debit cleared",
+       "attempts_used": 2,
+       "notifications_sent": 1,
+       "reasoning": {}
+      }
+     ]
+    },
+    "oracle_ceiling": {
+     "policy": "oracle_ceiling",
+     "outcome": "RECOVERED",
+     "recovered_amount": 1313.0,
+     "attempts_used": 2,
+     "notifications_sent": 1,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 500.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 15756.0,
+     "ltv_lost": 0.0,
+     "net_value": 783.0,
+     "days_to_resolution": 8,
+     "nudges_sent": 0,
+     "retry_dates": [
+      "2026-08-01"
+     ],
+     "steps": [
+      {
+       "day": "2026-07-24",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-08-01",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "oracle_ceiling",
+        "rule": "earliest date the balance actually clears",
+        "cheats": true,
+        "days_after_failure": 8
+       }
+      },
+      {
+       "day": "2026-08-01",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-08-01",
+       "retry_time": null,
+       "event": "debit cleared",
+       "attempts_used": 2,
+       "notifications_sent": 1,
+       "reasoning": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "key": "bank_or_psp_downtime",
+   "title": "Bank / PSP downtime",
+   "blurb": "Nothing is wrong with the customer or the mandate. The bank is down. Presenting into an outage burns an attempt and learns nothing.",
+   "base_rate": {
+    "episodes_scanned": 51,
+    "qualified": 2,
+    "sequencer_ahead": 4,
+    "tied": 43,
+    "legacy_ahead": 4,
+    "selection": "median qualifying episode by net-value delta"
+   },
+   "seed": 6,
+   "customer_id": "CUST_0238",
+   "return_code": "91",
+   "original_debit_date": "2026-07-20",
+   "cycle_end_date": "2026-08-19",
+   "verify_command": "python scripts/show_audit.py --customer CUST_0238 --seed 6 --n 400",
+   "customer": {
+    "customer_id": "CUST_0238",
+    "subscription_amount": 169.0,
+    "rail": "upi_autopay",
+    "debit_day_of_month": 20,
+    "tenure_months": 1,
+    "annual_ltv": 2028.0,
+    "bank_id": "IDFC",
+    "bounce_charge": 0.0
+   },
+   "metric": {
+    "field": "recovered_amount",
+    "label": "Money recovered",
+    "unit": "rupees",
+    "better": "higher",
+    "note": "Usually this class is a TIE - a bank comes back up on its own and both policies get the money. The gap only opens when the outage outlasts the day-7 schedule, and then the fixed one has spent every attempt before the bank returns.",
+    "values": {
+     "legacy_fixed": 0.0,
+     "sequencer": 169.0,
+     "oracle_ceiling": 169.0
+    }
+   },
+   "policies": {
+    "legacy_fixed": {
+     "policy": "legacy_fixed",
+     "outcome": "CANCELLED",
+     "recovered_amount": 0.0,
+     "attempts_used": 4,
+     "notifications_sent": 3,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 0.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 0.0,
+     "ltv_lost": 2028.0,
+     "net_value": -2048.0,
+     "days_to_resolution": 7,
+     "nudges_sent": 0,
+     "retry_dates": [
+      "2026-07-22",
+      "2026-07-24",
+      "2026-07-27"
+     ],
+     "steps": [
+      {
+       "day": "2026-07-20",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-07-22",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "fixed offset from original failure",
+        "offset_days": 2,
+        "retries_made": 0,
+        "attempts_remaining": 3,
+        "skipped_offsets": [],
+        "payday_considered": false,
+        "optout_cost_considered": false
+       }
+      },
+      {
+       "day": "2026-07-22",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-07-22",
+       "retry_time": null,
+       "event": "debit failed, code 04",
+       "attempts_used": 2,
+       "notifications_sent": 1,
+       "reasoning": {}
+      },
+      {
+       "day": "2026-07-22",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-07-24",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 2,
+       "notifications_sent": 1,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "fixed offset from original failure",
+        "offset_days": 4,
+        "retries_made": 1,
+        "attempts_remaining": 2,
+        "skipped_offsets": [],
+        "payday_considered": false,
+        "optout_cost_considered": false
+       }
+      },
+      {
+       "day": "2026-07-24",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-07-24",
+       "retry_time": null,
+       "event": "debit failed, code 04",
+       "attempts_used": 3,
+       "notifications_sent": 2,
+       "reasoning": {}
+      },
+      {
+       "day": "2026-07-24",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-07-27",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 3,
+       "notifications_sent": 2,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "fixed offset from original failure",
+        "offset_days": 7,
+        "retries_made": 2,
+        "attempts_remaining": 1,
+        "skipped_offsets": [],
+        "payday_considered": false,
+        "optout_cost_considered": false
+       }
+      },
+      {
+       "day": "2026-07-27",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-07-27",
+       "retry_time": null,
+       "event": "debit failed, code 04",
+       "attempts_used": 4,
+       "notifications_sent": 3,
+       "reasoning": {}
+      },
+      {
+       "day": "2026-07-27",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "CANCEL",
+       "repeats": 1,
+       "retry_date": null,
+       "retry_time": null,
+       "event": "terminal",
+       "attempts_used": 4,
+       "notifications_sent": 3,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "schedule exhausted",
+        "retries_made": 3,
+        "offsets": [
+         2,
+         4,
+         7
+        ],
+        "skipped_offsets": [],
+        "attempts_remaining": 0
+       }
+      }
+     ]
+    },
+    "sequencer": {
+     "policy": "sequencer",
+     "outcome": "RECOVERED",
+     "recovered_amount": 169.0,
+     "attempts_used": 2,
+     "notifications_sent": 1,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 0.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 2028.0,
+     "ltv_lost": 0.0,
+     "net_value": 159.0,
+     "days_to_resolution": 21,
+     "nudges_sent": 0,
+     "retry_dates": [
+      "2026-08-10"
+     ],
+     "steps": [
+      {
+       "day": "2026-07-20",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "WAIT",
+       "repeats": 20,
+       "retry_date": null,
+       "retry_time": null,
+       "event": "",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "sequencer",
+        "shock_probability": 0.05,
+        "payday_mode": 1,
+        "payday_confidence": 0.2786,
+        "attempts_remaining": 3,
+        "notifications_sent": 0,
+        "days_since_failure": 0,
+        "payday_tier": 2,
+        "bank_id": "IDFC",
+        "bank_outage_probability": 0.015,
+        "expected_recovery_hours": 3.0,
+        "candidates": [
+         {
+          "date": "2026-08-10",
+          "days_after_failure": 21,
+          "p_clear": 0.7796,
+          "p_optout": 0.0285,
+          "expected_recovery": 131.75,
+          "processing_cost": 5.0,
+          "expected_bounce": 0.0,
+          "expected_churn": 57.77,
+          "value": 68.98
+         },
+         {
+          "date": "2026-08-09",
+          "days_after_failure": 20,
+          "p_clear": 0.7752,
+          "p_optout": 0.0286,
+          "expected_recovery": 131.01,
+          "processing_cost": 5.0,
+          "expected_bounce": 0.0,
+          "expected_churn": 58.02,
+          "value": 67.99
+         },
+         {
+          "date": "2026-08-08",
+          "days_after_failure": 19,
+          "p_clear": 0.7682,
+          "p_optout": 0.0288,
+          "expected_recovery": 129.82,
+          "processing_cost": 5.0,
+          "expected_bounce": 0.0,
+          "expected_churn": 58.31,
+          "value": 66.52
+         },
+         {
+          "date": "2026-08-11",
+          "days_after_failure": 22,
+          "p_clear": 0.7606,
+          "p_optout": 0.0284,
+          "expected_recovery": 128.54,
+          "processing_cost": 5.0,
+          "expected_bounce": 0.0,
+          "expected_churn": 57.56,
+          "value": 65.98
+         },
+         {
+          "date": "2026-08-07",
+          "days_after_failure": 18,
+          "p_clear": 0.7589,
+          "p_optout": 0.0289,
+          "expected_recovery": 128.26,
+          "processing_cost": 5.0,
+          "expected_bounce": 0.0,
+          "expected_churn": 58.64,
+          "value": 64.62
+         }
+        ],
+        "binding_constraints": [],
+        "chosen_p_clear": 0.7796,
+        "chosen_p_optout": 0.0285,
+        "rule": "best date is not yet due for commitment",
+        "would_present_on": "2026-08-10",
+        "commit_on": "2026-08-09"
+       }
+      },
+      {
+       "day": "2026-08-09",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-08-10",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "sequencer",
+        "shock_probability": 0.05,
+        "payday_mode": 1,
+        "payday_confidence": 0.2786,
+        "attempts_remaining": 3,
+        "notifications_sent": 0,
+        "days_since_failure": 20,
+        "payday_tier": 2,
+        "bank_id": "IDFC",
+        "bank_outage_probability": 0.015,
+        "expected_recovery_hours": 3.0,
+        "candidates": [
+         {
+          "date": "2026-08-10",
+          "days_after_failure": 21,
+          "p_clear": 0.7796,
+          "p_optout": 0.0285,
+          "expected_recovery": 131.75,
+          "processing_cost": 5.0,
+          "expected_bounce": 0.0,
+          "expected_churn": 57.77,
+          "value": 68.98
+         },
+         {
+          "date": "2026-08-11",
+          "days_after_failure": 22,
+          "p_clear": 0.7606,
+          "p_optout": 0.0284,
+          "expected_recovery": 128.54,
+          "processing_cost": 5.0,
+          "expected_bounce": 0.0,
+          "expected_churn": 57.56,
+          "value": 65.98
+         },
+         {
+          "date": "2026-08-12",
+          "days_after_failure": 23,
+          "p_clear": 0.738,
+          "p_optout": 0.0283,
+          "expected_recovery": 124.73,
+          "processing_cost": 5.0,
+          "expected_bounce": 0.0,
+          "expected_churn": 57.37,
+          "value": 62.36
+         },
+         {
+          "date": "2026-08-13",
+          "days_after_failure": 24,
+          "p_clear": 0.7116,
+          "p_optout": 0.0282,
+          "expected_recovery": 120.26,
+          "processing_cost": 5.0,
+          "expected_bounce": 0.0,
+          "expected_churn": 57.21,
+          "value": 58.05
+         },
+         {
+          "date": "2026-08-14",
+          "days_after_failure": 25,
+          "p_clear": 0.6813,
+          "p_optout": 0.0281,
+          "expected_recovery": 115.14,
+          "processing_cost": 5.0,
+          "expected_bounce": 0.0,
+          "expected_churn": 57.07,
+          "value": 53.07
+         }
+        ],
+        "binding_constraints": [],
+        "chosen_p_clear": 0.7796,
+        "chosen_p_optout": 0.0285,
+        "rule": "highest positive expected value in the cycle",
+        "chosen_value": 68.98
+       }
+      },
+      {
+       "day": "2026-08-10",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-08-10",
+       "retry_time": null,
+       "event": "debit cleared",
+       "attempts_used": 2,
+       "notifications_sent": 1,
+       "reasoning": {}
+      }
+     ]
+    },
+    "oracle_ceiling": {
+     "policy": "oracle_ceiling",
+     "outcome": "RECOVERED",
+     "recovered_amount": 169.0,
+     "attempts_used": 2,
+     "notifications_sent": 1,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 0.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 2028.0,
+     "ltv_lost": 0.0,
+     "net_value": 159.0,
+     "days_to_resolution": 12,
+     "nudges_sent": 0,
+     "retry_dates": [
+      "2026-08-01"
+     ],
+     "steps": [
+      {
+       "day": "2026-07-20",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-08-01",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "oracle_ceiling",
+        "rule": "earliest date the balance actually clears",
+        "cheats": true,
+        "days_after_failure": 12
+       }
+      },
+      {
+       "day": "2026-08-01",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-08-01",
+       "retry_time": null,
+       "event": "debit cleared",
+       "attempts_used": 2,
+       "notifications_sent": 1,
+       "reasoning": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "key": "expired_or_reissued_card",
+   "title": "Expired / reissued card",
+   "blurb": "The credential is dead. No date clears, and no amount of retrying changes that. Every notice sent is a chance for the customer to cancel instead.",
+   "base_rate": {
+    "episodes_scanned": 31,
+    "qualified": 3,
+    "sequencer_ahead": 19,
+    "tied": 0,
+    "legacy_ahead": 12,
+    "selection": "median qualifying episode by net-value delta"
+   },
+   "seed": 8,
+   "customer_id": "CUST_0265",
+   "return_code": "54",
+   "original_debit_date": "2026-07-22",
+   "cycle_end_date": "2026-08-21",
+   "verify_command": "python scripts/show_audit.py --customer CUST_0265 --seed 8 --n 400",
+   "customer": {
+    "customer_id": "CUST_0265",
+    "subscription_amount": 270.0,
+    "rail": "nach",
+    "debit_day_of_month": 22,
+    "tenure_months": 2,
+    "annual_ltv": 3240.0,
+    "bank_id": "KOTAK",
+    "bounce_charge": 500.0
+   },
+   "metric": {
+    "field": "notifications_sent",
+    "label": "Pre-debit notices sent",
+    "unit": "count",
+    "better": "lower",
+    "note": "Nobody recovers money from a dead card - that is the correct answer. The cost being avoided is the opt-out risk in every RBI Sec 6(c) notice.",
+    "values": {
+     "legacy_fixed": 3,
+     "sequencer": 0,
+     "oracle_ceiling": 0
+    }
+   },
+   "policies": {
+    "legacy_fixed": {
+     "policy": "legacy_fixed",
+     "outcome": "CANCELLED",
+     "recovered_amount": 0.0,
+     "attempts_used": 4,
+     "notifications_sent": 3,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 2000.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 0.0,
+     "ltv_lost": 3240.0,
+     "net_value": -5300.0,
+     "days_to_resolution": 7,
+     "nudges_sent": 0,
+     "retry_dates": [
+      "2026-07-24",
+      "2026-07-26",
+      "2026-07-29"
+     ],
+     "steps": [
+      {
+       "day": "2026-07-22",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-07-24",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "fixed offset from original failure",
+        "offset_days": 2,
+        "retries_made": 0,
+        "attempts_remaining": 3,
+        "skipped_offsets": [],
+        "payday_considered": false,
+        "optout_cost_considered": false
+       }
+      },
+      {
+       "day": "2026-07-24",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-07-24",
+       "retry_time": null,
+       "event": "debit failed, code 54",
+       "attempts_used": 2,
+       "notifications_sent": 1,
+       "reasoning": {}
+      },
+      {
+       "day": "2026-07-24",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-07-26",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 2,
+       "notifications_sent": 1,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "fixed offset from original failure",
+        "offset_days": 4,
+        "retries_made": 1,
+        "attempts_remaining": 2,
+        "skipped_offsets": [],
+        "payday_considered": false,
+        "optout_cost_considered": false
+       }
+      },
+      {
+       "day": "2026-07-26",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-07-26",
+       "retry_time": null,
+       "event": "debit failed, code 54",
+       "attempts_used": 3,
+       "notifications_sent": 2,
+       "reasoning": {}
+      },
+      {
+       "day": "2026-07-26",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "RETRY",
+       "repeats": 1,
+       "retry_date": "2026-07-29",
+       "retry_time": "02:00:00",
+       "event": "scheduled",
+       "attempts_used": 3,
+       "notifications_sent": 2,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "fixed offset from original failure",
+        "offset_days": 7,
+        "retries_made": 2,
+        "attempts_remaining": 1,
+        "skipped_offsets": [],
+        "payday_considered": false,
+        "optout_cost_considered": false
+       }
+      },
+      {
+       "day": "2026-07-29",
+       "cycle": 1,
+       "kind": "event",
+       "action": "EXECUTE",
+       "repeats": 1,
+       "retry_date": "2026-07-29",
+       "retry_time": null,
+       "event": "debit failed, code 54",
+       "attempts_used": 4,
+       "notifications_sent": 3,
+       "reasoning": {}
+      },
+      {
+       "day": "2026-07-29",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "CANCEL",
+       "repeats": 1,
+       "retry_date": null,
+       "retry_time": null,
+       "event": "terminal",
+       "attempts_used": 4,
+       "notifications_sent": 3,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "schedule exhausted",
+        "retries_made": 3,
+        "offsets": [
+         2,
+         4,
+         7
+        ],
+        "skipped_offsets": [],
+        "attempts_remaining": 0
+       }
+      }
+     ]
+    },
+    "sequencer": {
+     "policy": "sequencer",
+     "outcome": "CANCELLED",
+     "recovered_amount": 0.0,
+     "attempts_used": 1,
+     "notifications_sent": 0,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 500.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 0.0,
+     "ltv_lost": 3240.0,
+     "net_value": -3761.48,
+     "days_to_resolution": 1,
+     "nudges_sent": 1,
+     "retry_dates": [],
+     "steps": [
+      {
+       "day": "2026-07-22",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "NUDGE",
+       "repeats": 1,
+       "retry_date": null,
+       "retry_time": null,
+       "event": "out of band, nudge 1 this cycle",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "sequencer",
+        "failure_class": "expired_or_reissued_card",
+        "class_rationale": "stored credential is dead; only the customer can replace it",
+        "allowed_actions": [
+         "CANCEL",
+         "HOLD",
+         "NUDGE"
+        ],
+        "retry_permitted": false,
+        "attempts_remaining": 3,
+        "notifications_sent": 0,
+        "candidates": [],
+        "binding_constraints": [
+         {
+          "reason": "failure_class",
+          "detail": "stored credential is dead; only the customer can replace it"
+         }
+        ],
+        "shock_probability": 0.0,
+        "payday_mode": null,
+        "payday_confidence": 0.0,
+        "rule": "expired_or_reissued_card: no retry can help, but the customer can - nudging them to update the credential"
+       }
+      },
+      {
+       "day": "2026-07-23",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "CANCEL",
+       "repeats": 1,
+       "retry_date": null,
+       "retry_time": null,
+       "event": "terminal",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "sequencer",
+        "failure_class": "expired_or_reissued_card",
+        "class_rationale": "stored credential is dead; only the customer can replace it",
+        "allowed_actions": [
+         "CANCEL",
+         "HOLD",
+         "NUDGE"
+        ],
+        "retry_permitted": false,
+        "attempts_remaining": 3,
+        "notifications_sent": 0,
+        "candidates": [],
+        "binding_constraints": [
+         {
+          "reason": "failure_class",
+          "detail": "stored credential is dead; only the customer can replace it"
+         }
+        ],
+        "shock_probability": 0.0,
+        "payday_mode": null,
+        "payday_confidence": 0.0,
+        "hold_value": -6595.83,
+        "cancel_value": -3240.0,
+        "rule": "expired_or_reissued_card: stored credential is dead; only the customer can replace it"
+       }
+      }
+     ]
+    },
+    "oracle_ceiling": {
+     "policy": "oracle_ceiling",
+     "outcome": "CHURNED",
+     "recovered_amount": 0.0,
+     "attempts_used": 1,
+     "notifications_sent": 0,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 500.0,
+     "carrying_cost_paid": 283.5,
+     "cycles_held": 7,
+     "ltv_retained": 0.0,
+     "ltv_lost": 3240.0,
+     "net_value": -4038.5,
+     "days_to_resolution": 214,
+     "nudges_sent": 0,
+     "retry_dates": [],
+     "steps": [
+      {
+       "day": "2026-07-22",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "HOLD",
+       "repeats": 1,
+       "retry_date": null,
+       "retry_time": null,
+       "event": "carry to next cycle",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "oracle_ceiling",
+        "rule": "expired_or_reissued_card: no date can succeed",
+        "cheats": true
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "key": "customer_opted_out",
+   "title": "Consent revoked",
+   "blurb": "The customer cancelled the mandate. Presenting on it is not a wasted attempt - it is a compliance breach.",
+   "base_rate": {
+    "episodes_scanned": 18,
+    "qualified": 18,
+    "sequencer_ahead": 0,
+    "tied": 18,
+    "legacy_ahead": 0,
+    "selection": "median qualifying episode by net-value delta"
+   },
+   "seed": 5,
+   "customer_id": "CUST_0221",
+   "return_code": "22",
+   "original_debit_date": "2026-07-21",
+   "cycle_end_date": "2026-08-20",
+   "verify_command": "python scripts/show_audit.py --customer CUST_0221 --seed 5 --n 400",
+   "customer": {
+    "customer_id": "CUST_0221",
+    "subscription_amount": 450.0,
+    "rail": "upi_autopay",
+    "debit_day_of_month": 21,
+    "tenure_months": 4,
+    "annual_ltv": 5400.0,
+    "bank_id": "SBI",
+    "bounce_charge": 0.0
+   },
+   "metric": {
+    "field": "compliance_breaches",
+    "label": "Compliance breaches",
+    "unit": "count",
+    "better": "lower",
+    "note": "A fixed schedule never reads the return code, so it cannot know the mandate is revoked. Across 20 seeds it breaches 41 times; the sequencer breaches zero. Note that net value is IDENTICAL for all three policies here - a breach is a regulatory cost, and the money model does not price it. This class is won on the compliance row or not at all.",
+    "values": {
+     "legacy_fixed": 1,
+     "sequencer": 0,
+     "oracle_ceiling": 0
+    }
+   },
+   "policies": {
+    "legacy_fixed": {
+     "policy": "legacy_fixed",
+     "outcome": "CANCELLED",
+     "recovered_amount": 0.0,
+     "attempts_used": 1,
+     "notifications_sent": 0,
+     "compliance_breaches": 1,
+     "bounce_charges_paid": 0.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 0.0,
+     "ltv_lost": 5400.0,
+     "net_value": -5405.0,
+     "days_to_resolution": 0,
+     "nudges_sent": 0,
+     "retry_dates": [],
+     "steps": [
+      {
+       "day": "2026-07-21",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "BREACH",
+       "repeats": 1,
+       "retry_date": "2026-07-23",
+       "retry_time": null,
+       "event": "presented against a customer_opted_out mandate",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "legacy_fixed",
+        "rule": "fixed offset from original failure",
+        "offset_days": 2,
+        "retries_made": 0,
+        "attempts_remaining": 3,
+        "skipped_offsets": [],
+        "payday_considered": false,
+        "optout_cost_considered": false
+       }
+      }
+     ]
+    },
+    "sequencer": {
+     "policy": "sequencer",
+     "outcome": "CANCELLED",
+     "recovered_amount": 0.0,
+     "attempts_used": 1,
+     "notifications_sent": 0,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 0.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 0.0,
+     "ltv_lost": 5400.0,
+     "net_value": -5405.0,
+     "days_to_resolution": 0,
+     "nudges_sent": 0,
+     "retry_dates": [],
+     "steps": [
+      {
+       "day": "2026-07-21",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "CANCEL",
+       "repeats": 1,
+       "retry_date": null,
+       "retry_time": null,
+       "event": "terminal",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "sequencer",
+        "failure_class": "customer_opted_out",
+        "class_rationale": "consent withdrawn under RBI Sec 6(c); the mandate is revoked",
+        "allowed_actions": [
+         "CANCEL"
+        ],
+        "retry_permitted": false,
+        "attempts_remaining": 3,
+        "notifications_sent": 0,
+        "candidates": [],
+        "binding_constraints": [
+         {
+          "reason": "failure_class",
+          "detail": "consent withdrawn under RBI Sec 6(c); the mandate is revoked"
+         }
+        ],
+        "shock_probability": 0.0,
+        "payday_mode": null,
+        "payday_confidence": 0.0,
+        "rule": "customer_opted_out: consent withdrawn under RBI Sec 6(c); the mandate is revoked"
+       }
+      }
+     ]
+    },
+    "oracle_ceiling": {
+     "policy": "oracle_ceiling",
+     "outcome": "CANCELLED",
+     "recovered_amount": 0.0,
+     "attempts_used": 1,
+     "notifications_sent": 0,
+     "compliance_breaches": 0,
+     "bounce_charges_paid": 0.0,
+     "carrying_cost_paid": 0.0,
+     "cycles_held": 0,
+     "ltv_retained": 0.0,
+     "ltv_lost": 5400.0,
+     "net_value": -5405.0,
+     "days_to_resolution": 0,
+     "nudges_sent": 0,
+     "retry_dates": [],
+     "steps": [
+      {
+       "day": "2026-07-21",
+       "cycle": 1,
+       "kind": "decision",
+       "action": "CANCEL",
+       "repeats": 1,
+       "retry_date": null,
+       "retry_time": null,
+       "event": "terminal",
+       "attempts_used": 1,
+       "notifications_sent": 0,
+       "reasoning": {
+        "policy": "oracle_ceiling",
+        "rule": "customer_opted_out: no date can succeed",
+        "cheats": true
+       }
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

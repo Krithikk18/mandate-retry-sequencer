@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mandate Retry Sequencer</title>
+<style>
+/* ---------------------------------------------------------------------------
+   Tokens. Complete light palette on bare :root; dark redefines TOKENS ONLY.
+   Three policy hues, chosen to be legible as a scale: slate (the status quo)
+   -> ochre (the agent) -> teal (the ceiling nobody reaches).
+--------------------------------------------------------------------------- */
+:root {
+  --paper:      #F3F5F7;
+  --surface:    #FFFFFF;
+  --surface-2:  #EAEEF2;
+  --ink:        #141C24;
+  --ink-2:      #47566B;
+  --ink-3:      #78899E;
+  --rule:       #D8DEE6;
+  --rule-2:     #C2CBD6;
+
+  --legacy:     #6F7F96;
+  --seq:        #9E5A14;
+  --seq-soft:   #F2E3D0;
+  --oracle:     #2E7A70;
+
+  --good:       #2E7A4F;
+  --bad:        #B03A2E;
+
+  --shadow:     0 1px 2px rgba(20,28,36,.06), 0 8px 24px -12px rgba(20,28,36,.18);
+
+  --f-display: ui-sans-serif, "Segoe UI Variable Display", "Segoe UI", -apple-system,
+               BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --f-body:    ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --f-mono:    ui-monospace, "Cascadia Mono", "SF Mono", "Consolas",
+               "Liberation Mono", monospace;
+
+  --step: clamp(.9rem, .84rem + .3vw, 1rem);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:     #10161C;
+    --surface:   #171F27;
+    --surface-2: #1F2932;
+    --ink:       #E7EDF3;
+    --ink-2:     #A2B1C2;
+    --ink-3:     #77889B;
+    --rule:      #28333E;
+    --rule-2:    #35424F;
+
+    --legacy:    #8B9BB1;
+    --seq:       #E3953F;
+    --seq-soft:  #33261A;
+    --oracle:    #4FB3A5;
+
+    --good:      #5FBF8A;
+    --bad:       #E0705F;
+
+    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"] {
+  --paper:     #10161C;
+  --surface:   #171F27;
+  --surface-2: #1F2932;
+  --ink:       #E7EDF3;
+  --ink-2:     #A2B1C2;
+  --ink-3:     #77889B;
+  --rule:      #28333E;
+  --rule-2:    #35424F;
+  --legacy:    #8B9BB1;
+  --seq:       #E3953F;
+  --seq-soft:  #33261A;
+  --oracle:    #4FB3A5;
+  --good:      #5FBF8A;
+  --bad:       #E0705F;
+  --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: var(--step);
+  line-height: 1.55;
+}
+h1, h2, h3, .num, .tab, .eyebrow, button { font-family: var(--f-display); }
+.mono, .num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--f-mono); }
+
+.eyebrow {
+  font-size: .625rem; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; }
+
+:where(a, button, [tabindex]):focus-visible {
+  outline: 2px solid var(--seq); outline-offset: 2px; border-radius: 3px;
+}
+
+/* --- Header: the one thing that never changes ---------------------------- */
+.strip {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+}
+.strip-in { display: flex; flex-wrap: wrap; gap: 24px 36px; align-items: center;
+            justify-content: space-between; padding-block: 14px; }
+.brand h1 { margin: 0; font-size: 1.0625rem; font-weight: 700; letter-spacing: -.01em; }
+.brand p  { margin: 2px 0 0; font-size: .75rem; color: var(--ink-2); font-family: var(--f-display); }
+
+.scale { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 4px 20px;
+         flex: 1 1 440px; max-width: 600px; }
+.sc { flex: 1 1 0; min-width: 96px; position: relative; padding-bottom: 20px; }
+.sc .num { display: block; font-size: clamp(1.375rem, 1.05rem + 1.4vw, 2rem);
+           font-weight: 800; letter-spacing: -.03em; line-height: 1.05; }
+.sc .lbl { display: block; font-size: .625rem; font-weight: 700; letter-spacing: .09em;
+           text-transform: uppercase; margin-top: 5px; font-family: var(--f-display);
+           white-space: nowrap; }
+.sc::after { content: ""; position: absolute; left: 0; right: 0; bottom: 5px;
+             height: 4px; border-radius: 2px; background: currentColor; opacity: .9; }
+.sc-legacy { color: var(--legacy); }
+.sc-seq    { color: var(--seq); }
+.sc-oracle { color: var(--oracle); }
+.sc .lbl, .sc .num { color: currentColor; }
+.sc-note { flex: 1 0 100%; font-size: .6875rem; color: var(--ink-3);
+           font-family: var(--f-display); margin: 0; line-height: 1.4; }
+.sc-note code { font-family: var(--f-mono); font-size: .65rem; }
+
+/* --- Scenario tabs -------------------------------------------------------- */
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; padding-block: 18px 0; }
+.tab {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--surface); color: var(--ink-2);
+  border: 1px solid var(--rule); border-radius: 2px;
+  padding: 9px 13px; font-size: .8125rem; font-weight: 600;
+  cursor: pointer; transition: border-color .15s, color .15s, background .15s;
+}
+.tab:hover { border-color: var(--rule-2); color: var(--ink); }
+.tab[aria-selected="true"] {
+  background: var(--seq-soft); border-color: var(--seq); color: var(--ink);
+}
+.tab .code {
+  font-family: var(--f-mono); font-size: .6875rem; font-weight: 700;
+  background: var(--surface-2); color: var(--ink-2);
+  padding: 1px 5px; border-radius: 2px;
+}
+.tab[aria-selected="true"] .code { background: var(--seq); color: #fff; }
+
+/* --- Scenario context ----------------------------------------------------- */
+.ctx { padding-block: 22px 6px; display: grid; gap: 14px;
+       grid-template-columns: minmax(0,1fr) auto; align-items: start; }
+.ctx-blurb { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: 1rem; }
+.ctx-blurb b { color: var(--ink); font-weight: 400; }
+.ctx-cust { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: flex-end;
+            font-family: var(--f-mono); font-size: .75rem; color: var(--ink-2); }
+.ctx-cust span { white-space: nowrap; }
+.ctx-cust b { color: var(--ink); font-weight: 600; }
+
+/* --- Stage: one frame at a time ------------------------------------------ */
+.stage {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 3px; box-shadow: var(--shadow);
+  margin-top: 16px; min-height: 300px;
+  display: flex; flex-direction: column;
+}
+.frame { padding: 22px 26px 24px; }
+.frame[data-anim="in"] { animation: rise .34s cubic-bezier(.2,.7,.3,1) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(7px); } }
+
+.f-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 14px;
+          padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+.f-day { font-family: var(--f-mono); font-size: .8125rem; font-weight: 700;
+         color: var(--ink-3); letter-spacing: .02em; }
+.f-title { margin: 0; font-size: 1.3125rem; font-weight: 700; letter-spacing: -.02em;
+           text-wrap: balance; }
+.f-title.is-good { color: var(--good); }
+.f-title.is-bad  { color: var(--bad); }
+.f-sub { margin: 12px 0 0; color: var(--ink-2); max-width: 64ch; }
+.f-sub em { font-style: normal; color: var(--ink); }
+
+.pill { font-family: var(--f-display); font-size: .625rem; font-weight: 700;
+        letter-spacing: .09em; text-transform: uppercase;
+        padding: 3px 8px; border-radius: 2px; border: 1px solid currentColor; }
+.pill-wait   { color: var(--ink-3); }
+.pill-act    { color: var(--seq); }
+.pill-good   { color: var(--good); }
+.pill-bad    { color: var(--bad); }
+
+/* signal rows (payday posterior, bank health) */
+.signals { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.sig { background: var(--surface-2); border-radius: 2px; padding: 9px 12px;
+       min-width: 148px; flex: 0 1 auto; }
+.sig .k { display: block; font-size: .625rem; font-weight: 700; letter-spacing: .1em;
+          text-transform: uppercase; color: var(--ink-3); font-family: var(--f-display); }
+.sig .v { display: block; font-family: var(--f-mono); font-size: 1rem; font-weight: 600;
+          margin-top: 2px; }
+
+/* --- Candidate dates: the priced calendar -------------------------------- */
+.cands { margin-top: 20px; }
+.cand-row { display: grid; gap: 7px; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+.cand {
+  border: 1px solid var(--rule); border-radius: 2px; padding: 10px 10px 9px;
+  background: var(--surface); position: relative; overflow: hidden;
+}
+.cand.is-best { border-color: var(--seq); background: var(--seq-soft); }
+.cand .cd { font-family: var(--f-mono); font-size: .75rem; font-weight: 700; }
+.cand .cp { font-family: var(--f-mono); font-size: .6875rem; color: var(--ink-3); margin-top: 1px;
+            display: flex; justify-content: space-between; gap: 8px; }
+.cand .cp .dl { color: var(--ink-3); }
+.cand.is-best .cp .dl { color: var(--seq); font-weight: 700; }
+.cand .cv { font-family: var(--f-mono); font-size: .9375rem; font-weight: 700;
+            margin-top: 7px; color: var(--ink-2); }
+.cand.is-best .cv { color: var(--seq); }
+.cand .bar { height: 3px; border-radius: 2px; background: var(--rule-2); margin-top: 6px;
+             transform-origin: left; animation: grow .5s cubic-bezier(.2,.7,.3,1) both; }
+.cand.is-best .bar { background: var(--seq); }
+@keyframes grow { from { transform: scaleX(0); } }
+.cand-cap { margin-top: 9px; font-size: .75rem; color: var(--ink-3);
+            font-family: var(--f-display); }
+
+/* --- Money equation ------------------------------------------------------- */
+.eq { margin-top: 18px; border: 1px solid var(--rule); border-radius: 2px; overflow: hidden; }
+.eq-h { background: var(--surface-2); padding: 7px 12px; font-size: .625rem;
+        font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+        color: var(--ink-2); font-family: var(--f-display); }
+.eq-r { display: flex; justify-content: space-between; gap: 18px;
+        padding: 6px 12px; font-family: var(--f-mono); font-size: .8125rem;
+        border-top: 1px solid var(--rule); }
+.eq-r:first-of-type { border-top: 0; }
+.eq-r .t { color: var(--ink-2); }
+.eq-r .n { font-weight: 600; white-space: nowrap; }
+.eq-r.pos .n { color: var(--good); }
+.eq-r.neg .n { color: var(--bad); }
+.eq-r.tot { background: var(--surface-2); font-weight: 700; }
+.eq-r.tot .t, .eq-r.tot .n { color: var(--ink); }
+
+/* compliance ticks */
+.checks { margin-top: 14px; display: grid; gap: 4px; }
+.chk { font-family: var(--f-mono); font-size: .75rem; color: var(--ink-2); }
+.chk::before { content: "✓ "; color: var(--good); font-weight: 700; }
+
+.bound { margin-top: 14px; border-left: 3px solid var(--seq); padding: 7px 0 7px 12px;
+         background: var(--seq-soft); }
+.bound .k { font-size: .625rem; font-weight: 700; letter-spacing: .1em;
+            text-transform: uppercase; color: var(--seq); font-family: var(--f-display); }
+.bound .v { display: block; margin-top: 2px; color: var(--ink); }
+
+.allowed { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.allowed .k { font-size: .625rem; font-weight: 700; letter-spacing: .1em;
+              text-transform: uppercase; color: var(--ink-3); font-family: var(--f-display);
+              margin-right: 4px; }
+.act { font-family: var(--f-mono); font-size: .6875rem; font-weight: 700;
+       padding: 2px 7px; border-radius: 2px; background: var(--surface-2); color: var(--ink-2); }
+.act.off { text-decoration: line-through; opacity: .5; }
+
+/* --- Transport ------------------------------------------------------------ */
+.transport { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+             padding: 12px 26px; border-top: 1px solid var(--rule);
+             background: var(--surface-2); margin-top: auto; }
+.rail { display: flex; gap: 5px; flex: 1 1 160px; align-items: center; }
+.dot { flex: 1; height: 5px; min-width: 14px; border-radius: 3px; background: var(--rule-2);
+       border: 0; padding: 0; cursor: pointer; transition: background .2s; }
+.dot:hover { background: var(--ink-3); }
+.dot.done { background: var(--seq); opacity: .45; }
+.dot.now  { background: var(--seq); opacity: 1; }
+.btns { display: flex; gap: 7px; }
+.btn { font-size: .75rem; font-weight: 700; letter-spacing: .03em;
+       padding: 7px 14px; border-radius: 2px; cursor: pointer;
+       border: 1px solid var(--rule-2); background: var(--surface); color: var(--ink); }
+.btn:hover:not(:disabled) { border-color: var(--ink-3); }
+.btn:disabled { opacity: .38; cursor: default; }
+.btn-go { background: var(--seq); border-color: var(--seq); color: #fff; }
+.btn-go:hover:not(:disabled) { filter: brightness(1.08); }
+.count { font-family: var(--f-mono); font-size: .75rem; color: var(--ink-3); }
+
+/* --- Comparison ----------------------------------------------------------- */
+.cmp { margin-top: 26px; }
+.cmp-h { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline;
+         justify-content: space-between; margin-bottom: 10px; }
+.cmp-h h2 { margin: 0; font-size: .9375rem; font-weight: 700; letter-spacing: -.01em; }
+.cmp-note { font-size: .75rem; color: var(--ink-3); font-family: var(--f-display);
+            max-width: 60ch; text-align: right; }
+.cols { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); }
+.col { background: var(--surface); border: 1px solid var(--rule); border-radius: 3px;
+       padding: 15px 16px 16px; border-top: 3px solid currentColor; }
+.col-legacy { color: var(--legacy); }
+.col-seq    { color: var(--seq); }
+.col-oracle { color: var(--oracle); }
+.col h3 { margin: 0; font-size: .8125rem; font-weight: 700; color: var(--ink);
+          letter-spacing: -.01em; }
+.col .who { font-size: .6875rem; color: var(--ink-3); font-family: var(--f-display);
+            margin-top: 1px; display: block; min-height: 1.3em; }
+.col .big { font-family: var(--f-display); font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+            font-weight: 800; letter-spacing: -.03em; color: currentColor;
+            margin-top: 11px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.col .big.muted { color: var(--ink-3); }
+.col .mlbl { font-size: .625rem; font-weight: 700; letter-spacing: .1em;
+             text-transform: uppercase; color: var(--ink-3); font-family: var(--f-display);
+             margin-top: 3px; }
+.col .mbar { height: 4px; border-radius: 2px; background: currentColor; margin-top: 10px;
+             transform-origin: left; transition: transform .55s cubic-bezier(.2,.7,.3,1); }
+.col ul { list-style: none; margin: 13px 0 0; padding: 11px 0 0; display: grid; gap: 4px;
+          border-top: 1px solid var(--rule); }
+.col li { display: flex; justify-content: space-between; gap: 12px;
+          font-family: var(--f-mono); font-size: .75rem; color: var(--ink-2); }
+.col li b { color: var(--ink); font-weight: 600; }
+.col li.flag b { color: var(--bad); }
+.outcome { display: inline-block; margin-top: 9px; font-family: var(--f-display);
+           font-size: .625rem; font-weight: 700; letter-spacing: .09em;
+           text-transform: uppercase; padding: 3px 8px; border-radius: 2px;
+           border: 1px solid currentColor; }
+.o-RECOVERED { color: var(--good); }
+.o-CANCELLED { color: var(--ink-3); }
+.o-OPTED_OUT, .o-CHURNED { color: var(--bad); }
+.o-HELD { color: var(--seq); }
+.o-pending { color: var(--ink-3); opacity: .55; }
+
+.baserate { margin-top: 12px; font-size: .75rem; color: var(--ink-2);
+            font-family: var(--f-display); border-left: 3px solid var(--rule-2);
+            padding: 6px 0 6px 12px; }
+.baserate b { color: var(--ink); font-weight: 700; }
+
+/* --- Provenance ----------------------------------------------------------- */
+.prov { margin: 30px 0 0; padding: 18px 0 40px; border-top: 1px solid var(--rule);
+        display: grid; gap: 7px; font-size: .75rem; color: var(--ink-3);
+        font-family: var(--f-display); }
+.prov code { font-family: var(--f-mono); font-size: .6875rem; color: var(--ink-2);
+             background: var(--surface-2); padding: 1px 5px; border-radius: 2px;
+             overflow-wrap: anywhere; }
+.prov b { color: var(--ink-2); font-weight: 700; }
+/* One command per line: a wrapped shell command that breaks mid-token is a
+   command a reviewer cannot copy. */
+.prov .cmds { display: grid; gap: 4px; margin-top: 5px; }
+.prov .cmds code { justify-self: start; max-width: 100%; }
+
+@media (max-width: 860px) {
+  .ctx { grid-template-columns: 1fr; }
+  .ctx-cust { justify-content: flex-start; }
+  .cmp-note { text-align: left; }
+  .cols { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="strip">
+  <div class="wrap strip-in">
+    <div class="brand">
+      <h1>Mandate Retry Sequencer</h1>
+      <p>When to retry a failed Indian e-mandate debit &mdash; and when not to</p>
+    </div>
+    <div class="scale" id="scale"></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="tabs" id="tabs" role="tablist" aria-label="Failure scenario"></div>
+
+  <section class="ctx">
+    <p class="ctx-blurb" id="blurb"></p>
+    <div class="ctx-cust" id="cust"></div>
+  </section>
+
+  <section class="stage">
+    <div class="frame" id="frame"></div>
+    <div class="transport">
+      <div class="rail" id="rail"></div>
+      <span class="count" id="count"></span>
+      <div class="btns">
+        <button class="btn" id="back" type="button">&#9664; Back</button>
+        <button class="btn btn-go" id="next" type="button">Step &#9654;</button>
+        <button class="btn" id="play" type="button">Play</button>
+        <button class="btn" id="reset" type="button">Reset</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="cmp">
+    <div class="cmp-h">
+      <h2>Same customer, same failure, three policies</h2>
+      <p class="cmp-note" id="cmpnote"></p>
+    </div>
+    <div class="cols" id="cols"></div>
+    <p class="baserate" id="baserate"></p>
+  </section>
+
+  <footer class="prov" id="prov"></footer>
+</main>
+
+<script type="application/json" id="snapshot">__SNAPSHOT__</script>
+<script>
+(function () {
+  "use strict";
+
+  var DATA  = JSON.parse(document.getElementById("snapshot").textContent);
+  var ORDER = DATA.policy_order;                    // floor, agent, ceiling
+  var HUE   = { legacy_fixed: "legacy", sequencer: "seq", oracle_ceiling: "oracle" };
+
+  /* ---- formatting ------------------------------------------------------ */
+  // Western grouping, matching the repo's own reports so a reviewer who clicks
+  // through to README.md sees the same figures shaped the same way.
+  function rupees(v, signed) {
+    var n = Math.round(Math.abs(v)).toLocaleString("en-US");
+    if (Math.abs(v) < 0.5) return "₹0";
+    return (signed && v > 0 ? "+" : v < 0 ? "−" : "") + "₹" + n;
+  }
+  function pct(v) { return (v * 100).toFixed(1) + "%"; }
+  var MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function day(iso) {
+    var p = String(iso).split("-");
+    return p[2] + " " + MON[+p[1] - 1];
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+  function el(tag, cls, html) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (html != null) n.innerHTML = html;
+    return n;
+  }
+
+  /* ---- state ----------------------------------------------------------- */
+  var state = { scenario: 0, step: 0, playing: false };
+  var timer = null;
+
+  function scenario() { return DATA.scenarios[state.scenario]; }
+
+  // Frames = the synthetic failure card, then the sequencer's own decision log.
+  // Nothing is invented: every frame after the first is one collapsed entry the
+  // policy actually wrote.
+  function frames() {
+    var sc = scenario();
+    var out = [{ kind: "failure" }];
+    sc.policies.sequencer.steps.forEach(function (s) {
+      out.push({ kind: "step", step: s });
+    });
+    return out;
+  }
+  function atEnd() { return state.step >= frames().length - 1; }
+
+  /* ---- header: the constant anchor ------------------------------------- */
+  function renderScale() {
+    var h = DATA.headline, box = document.getElementById("scale");
+    box.textContent = "";
+    ORDER.forEach(function (name) {
+      var d = el("div", "sc sc-" + HUE[name]);
+      d.appendChild(el("span", "num", pct(h.rates[name])));
+      d.appendChild(el("span", "lbl", esc(DATA.policy_labels[name].replace(" fixed schedule", " fixed"))));
+      box.appendChild(d);
+    });
+    box.appendChild(el("p", "sc-note",
+      "Recovery rate over " + h.seeds + " seeds × " + h.n_customers.toLocaleString("en-US") +
+      " customers (" + h.total_failures.toLocaleString("en-US") + " failures), from <code>" +
+      esc(h.source_script) + "</code>"));
+  }
+
+  /* ---- tabs ------------------------------------------------------------ */
+  function renderTabs() {
+    var box = document.getElementById("tabs");
+    box.textContent = "";
+    DATA.scenarios.forEach(function (sc, i) {
+      var b = el("button", "tab");
+      b.type = "button";
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", i === state.scenario ? "true" : "false");
+      b.innerHTML = '<span class="code">' + esc(sc.return_code) + "</span>" + esc(sc.title);
+      b.addEventListener("click", function () { select(i); });
+      box.appendChild(b);
+    });
+  }
+
+  function renderContext() {
+    var sc = scenario(), c = sc.customer;
+    document.getElementById("blurb").innerHTML = esc(sc.blurb);
+    document.getElementById("cust").innerHTML =
+      "<span><b>" + esc(c.customer_id) + "</b></span>" +
+      "<span>" + rupees(c.subscription_amount) + "/mo</span>" +
+      "<span>" + esc(c.rail) + "</span>" +
+      "<span>" + esc(c.bank_id) + "</span>" +
+      "<span>LTV " + rupees(c.annual_ltv) + "</span>" +
+      (c.bounce_charge > 0 ? "<span>bounce " + rupees(c.bounce_charge) + "</span>" : "");
+  }
+
+  /* ---- the stage ------------------------------------------------------- */
+  function renderFrame() {
+    var sc = scenario(), fs = frames(), f = fs[state.step];
+    var host = document.getElementById("frame");
+    host.textContent = "";
+    host.removeAttribute("data-anim");
+    void host.offsetWidth;                 // restart the entry animation
+    host.setAttribute("data-anim", "in");
+
+    if (f.kind === "failure") { renderFailure(host, sc); }
+    else { renderStep(host, sc, f.step); }
+
+    // transport
+    var rail = document.getElementById("rail");
+    rail.textContent = "";
+    fs.forEach(function (_, i) {
+      var d = el("button", "dot" + (i === state.step ? " now" : i < state.step ? " done" : ""));
+      d.type = "button";
+      d.setAttribute("aria-label", "Step " + (i + 1));
+      d.addEventListener("click", function () { stop(); state.step = i; renderFrame(); renderCompare(); });
+      rail.appendChild(d);
+    });
+    document.getElementById("count").textContent = (state.step + 1) + " / " + fs.length;
+    document.getElementById("back").disabled = state.step === 0;
+    document.getElementById("next").disabled = atEnd();
+    // Play is never disabled: at the end it restarts from the top, so a second
+    // recording take does not need a trip through Reset first.
+    document.getElementById("play").textContent = state.playing ? "Pause" : "Play";
+  }
+
+  function renderFailure(host, sc) {
+    var c = sc.customer;
+    var h = el("div", "f-head");
+    h.appendChild(el("span", "f-day", day(sc.original_debit_date)));
+    h.appendChild(el("h2", "f-title is-bad", "Debit failed"));
+    h.appendChild(el("span", "pill pill-bad", "code " + esc(sc.return_code)));
+    host.appendChild(h);
+    host.appendChild(el("p", "f-sub",
+      "The scheduled " + rupees(c.subscription_amount) + " debit on " + esc(c.rail) +
+      " came back <em>" + esc(sc.return_code) + "</em>. The cycle ends " +
+      day(sc.cycle_end_date) + ", and NPCI allows " + DATA.rules.max_attempts_per_cycle +
+      " presentments inside it — one of which is already spent."));
+
+    var sig = el("div", "signals");
+    sig.appendChild(kv("Legacy schedule", "day " + DATA.rules.legacy_offsets.join(" / ")));
+    sig.appendChild(kv("Attempts left", (DATA.rules.max_attempts_per_cycle - 1) + " of " + DATA.rules.max_attempts_per_cycle));
+    sig.appendChild(kv("Notice required", DATA.rules.pre_debit_notice_hours + "h ahead"));
+    host.appendChild(sig);
+  }
+
+  function kv(k, v) {
+    var d = el("div", "sig");
+    d.appendChild(el("span", "k", esc(k)));
+    d.appendChild(el("span", "v", v));
+    return d;
+  }
+
+  var TITLES = {
+    WAIT:    "Hold position",
+    RETRY:   "Commit to a date",
+    NUDGE:   "Nudge the customer",
+    CANCEL:  "Stop",
+    HOLD:    "Carry the mandate",
+    EXECUTE: "Presentment",
+    AUTO:    "Auto-presentment",
+    CHURN:   "Customer left"
+  };
+
+  function renderStep(host, sc, st) {
+    var r = st.reasoning || {};
+    var cleared = /cleared/.test(st.event);
+    var failed  = /failed|opted out/.test(st.event);
+
+    var h = el("div", "f-head");
+    h.appendChild(el("span", "f-day", day(st.day)));
+    var title = st.kind === "event"
+      ? (cleared ? "Debit cleared" : failed ? "Presentment failed" : TITLES[st.action] || st.action)
+      : (TITLES[st.action] || st.action);
+    var tone = cleared ? " is-good" : failed ? " is-bad" : "";
+    h.appendChild(el("h2", "f-title" + tone, esc(title)));
+    h.appendChild(el("span", "pill " + pillFor(st, cleared, failed), esc(st.action)));
+    if (st.repeats > 1) h.appendChild(el("span", "f-day", "unchanged for " + st.repeats + " days"));
+    host.appendChild(h);
+
+    if (r.rule) {
+      host.appendChild(el("p", "f-sub", esc(cap(derail(r.rule, sc.key)))));
+    } else if (st.event && !restates(st.event, title)) {
+      host.appendChild(el("p", "f-sub", esc(cap(st.event))));
+    }
+
+    // What the agent inferred. Only rendered when the policy recorded it.
+    var sig = el("div", "signals"), any = false;
+    if (r.payday_mode != null) {
+      sig.appendChild(kv("Payday posterior", "day " + r.payday_mode +
+        ' <span style="color:var(--ink-3)">· conf ' + r.payday_confidence.toFixed(2) + "</span>"));
+      any = true;
+    }
+    if (r.bank_outage_probability != null) {
+      sig.appendChild(kv("P(outage) · " + esc(r.bank_id || "bank"),
+        r.bank_outage_probability.toFixed(3)));
+      sig.appendChild(kv("Expected recovery", r.expected_recovery_hours.toFixed(1) + "h"));
+      any = true;
+    }
+    if (r.chosen_p_clear != null) { sig.appendChild(kv("P(clear) chosen", r.chosen_p_clear.toFixed(3))); any = true; }
+    if (st.kind === "event") {
+      sig.appendChild(kv("Attempts used", st.attempts_used + " / " + DATA.rules.max_attempts_per_cycle));
+      sig.appendChild(kv("Notices sent", String(st.notifications_sent)));
+      any = true;
+    }
+    if (any) host.appendChild(sig);
+
+    if (r.candidates && r.candidates.length) renderCandidates(host, sc, st, r);
+    if (r.retry_permitted === false) renderGate(host, r);
+    if (r.hold_value != null && r.cancel_value != null) renderStopping(host, r);
+    if (st.action === "RETRY") renderCompliance(host, st);
+  }
+
+  function pillFor(st, cleared, failed) {
+    if (cleared) return "pill-good";
+    if (failed || st.action === "CANCEL") return "pill-bad";
+    if (st.action === "WAIT") return "pill-wait";
+    return "pill-act";
+  }
+  function cap(s) { return String(s).charAt(0).toUpperCase() + String(s).slice(1); }
+
+  /* The class-gated rules are recorded prefixed with their failure class
+     ("expired_or_reissued_card: no retry can help..."). The tab overhead
+     already names the class, so the prefix is dropped rather than shown as a
+     raw key in running prose. Only an exact match is stripped. */
+  function derail(rule, key) {
+    return rule.indexOf(key + ": ") === 0 ? rule.slice(key.length + 2) : rule;
+  }
+
+  /* "Debit cleared" as a heading with "debit cleared" restated underneath is
+     noise. Only show the event line when it carries more than the title does. */
+  function restates(event, title) {
+    var e = String(event).toLowerCase(), t = String(title).toLowerCase();
+    return e === t || t.indexOf(e) !== -1;
+  }
+
+  /* Candidate dates, chronological so they read as a calendar, with the one
+     the policy picked marked. Bars are scaled to the best value in the set. */
+  function renderCandidates(host, sc, st, r) {
+    var cands = r.candidates.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    var best = st.retry_date || r.would_present_on;
+    var max = Math.max.apply(null, cands.map(function (c) { return c.value; }));
+
+    var box = el("div", "cands");
+    var head = el("div", "eyebrow", "Every reachable date, priced");
+    box.appendChild(head);
+    var row = el("div", "cand-row");
+    cands.forEach(function (c, i) {
+      var d = el("div", "cand" + (c.date === best ? " is-best" : ""));
+      d.appendChild(el("div", "cd", day(c.date)));
+      // The candidates price within a few rupees of each other, so a bar scaled
+      // from zero shows them as near-identical - which is true, and worth
+      // seeing. The delta is what actually separates them, so it is stated
+      // rather than left to the eye.
+      var gap = max - c.value;
+      d.appendChild(el("div", "cp",
+        "P " + c.p_clear.toFixed(2) +
+        '<span class="dl">' + (gap < 0.5 ? "best" : "−" + rupees(gap).slice(1)) + "</span>"));
+      d.appendChild(el("div", "cv", rupees(c.value, true)));
+      var bar = el("div", "bar");
+      bar.style.width = Math.max(4, (c.value / max) * 100) + "%";
+      bar.style.animationDelay = (i * 55) + "ms";
+      d.appendChild(bar);
+      row.appendChild(d);
+    });
+    box.appendChild(row);
+    box.appendChild(el("p", "cand-cap",
+      "Expected value per date — recovery, less processing, bounce risk and the opt-out risk in the notice."));
+    host.appendChild(box);
+
+    var chosen = cands.filter(function (c) { return c.date === best; })[0];
+    if (chosen) renderEquation(host, sc, chosen, st);
+  }
+
+  /* The money equation, term by term, exactly as audit/trail.py prints it.
+     Every figure is read from the recorded candidate - nothing recomputed. */
+  function renderEquation(host, sc, c, st) {
+    var cu = sc.customer;
+    var box = el("div", "eq");
+    box.appendChild(el("div", "eq-h", "Why " + day(c.date) +
+      (st.action === "RETRY" ? " — committed" : " — leading")));
+    box.appendChild(row("P(clear) " + c.p_clear.toFixed(2) + " × " + rupees(cu.subscription_amount),
+                        c.expected_recovery, "pos"));
+    box.appendChild(row("processing", -c.processing_cost, "neg"));
+    box.appendChild(row("bounce risk " + (1 - c.p_clear).toFixed(2) + " × " + rupees(cu.bounce_charge),
+                        -c.expected_bounce, c.expected_bounce > 0.5 ? "neg" : ""));
+    box.appendChild(row("opt-out risk " + c.p_optout.toFixed(3) + " × " + rupees(cu.annual_ltv),
+                        -c.expected_churn, "neg"));
+    box.appendChild(row("expected value", c.value, "tot"));
+    host.appendChild(box);
+
+    function row(label, val, cls) {
+      var d = el("div", "eq-r " + (cls === "tot" ? "tot" : cls));
+      d.appendChild(el("span", "t", esc(label)));
+      d.appendChild(el("span", "n", rupees(val, true)));
+      return d;
+    }
+  }
+
+  function renderCompliance(host, st) {
+    var lead = (Date.parse(st.retry_date) - Date.parse(st.day)) / 36e5;
+    var hh = st.retry_time ? st.retry_time.slice(0, 5) : null;
+    var box = el("div", "checks");
+    box.appendChild(el("div", "chk", "Committed " + lead + "h ahead — notice rule needs " +
+      DATA.rules.pre_debit_notice_hours + "h"));
+    if (hh) box.appendChild(el("div", "chk", "Presenting " + hh + ", inside the 00:00–07:00 UPI Autopay window"));
+    box.appendChild(el("div", "chk", "Attempt " + (st.attempts_used + 1) + " of " +
+      DATA.rules.max_attempts_per_cycle + " this cycle"));
+    host.appendChild(box);
+  }
+
+  /* Class gate: the classes where retrying is not an available move at all. */
+  function renderGate(host, r) {
+    if (r.class_rationale) {
+      var b = el("div", "bound");
+      b.appendChild(el("span", "k", "Bound by failure class"));
+      b.appendChild(el("span", "v", esc(cap(r.class_rationale))));
+      host.appendChild(b);
+    }
+    if (r.allowed_actions) {
+      var a = el("div", "allowed");
+      a.appendChild(el("span", "k", "Actions available"));
+      ["RETRY", "NUDGE", "HOLD", "CANCEL"].forEach(function (act) {
+        var on = r.allowed_actions.indexOf(act) !== -1;
+        a.appendChild(el("span", "act" + (on ? "" : " off"), act));
+      });
+      host.appendChild(a);
+    }
+  }
+
+  function renderStopping(host, r) {
+    var box = el("div", "eq");
+    box.appendChild(el("div", "eq-h", "Stop or carry"));
+    var keep = r.hold_value >= r.cancel_value;
+    box.appendChild(rw("carry the mandate", r.hold_value, keep));
+    box.appendChild(rw("cancel it", r.cancel_value, !keep));
+    host.appendChild(box);
+    function rw(label, v, win) {
+      var d = el("div", "eq-r" + (win ? " tot" : ""));
+      d.appendChild(el("span", "t", esc(label) + (win ? " ← chosen" : "")));
+      d.appendChild(el("span", "n", rupees(v, true)));
+      return d;
+    }
+  }
+
+  /* ---- comparison ------------------------------------------------------ */
+  // Floor and ceiling are shown from the start; the sequencer column resolves
+  // only when the timeline has actually played out, so the page is readable at
+  // rest without giving away where the agent lands.
+  function renderCompare() {
+    var sc = scenario(), m = sc.metric, done = atEnd();
+    var box = document.getElementById("cols");
+    box.textContent = "";
+
+    var vals = ORDER.map(function (n) { return m.values[n]; });
+    var span = Math.max.apply(null, vals.map(Math.abs)) || 1;
+
+    ORDER.forEach(function (name) {
+      var p = sc.policies[name], v = m.values[name];
+      var hidden = name === "sequencer" && !done;
+      var col = el("div", "col col-" + HUE[name]);
+      col.appendChild(el("h3", null, esc(DATA.policy_labels[name])));
+      col.appendChild(el("span", "who",
+        name === "oracle_ceiling" ? "cheats — reads future balances"
+        : name === "legacy_fixed" ? "day " + DATA.rules.legacy_offsets.join("/") + ", every failure"
+        : "this system"));
+
+      col.appendChild(el("div", "big" + (hidden ? " muted" : ""),
+        hidden ? "—" : fmtMetric(v, m.unit)));
+      col.appendChild(el("div", "mlbl", esc(m.label)));
+
+      var bar = el("div", "mbar");
+      bar.style.transform = "scaleX(" + (hidden ? 0 : Math.max(Math.abs(v) / span, v === 0 ? 0 : .04)) + ")";
+      col.appendChild(bar);
+
+      col.appendChild(el("span", "outcome " + (hidden ? "o-pending" : "o-" + p.outcome),
+        hidden ? "running" : esc(p.outcome)));
+
+      var ul = el("ul");
+      ul.appendChild(li("presentments", p.attempts_used, hidden));
+      ul.appendChild(li("notices sent", p.notifications_sent, hidden));
+      ul.appendChild(li("breaches", p.compliance_breaches, hidden, p.compliance_breaches > 0));
+      ul.appendChild(li("net value", rupees(p.net_value, true), hidden));
+      col.appendChild(ul);
+      box.appendChild(col);
+    });
+
+    document.getElementById("cmpnote").innerHTML = esc(m.note);
+
+    var br = sc.base_rate;
+    document.getElementById("baserate").innerHTML =
+      "Across <b>all " + br.episodes_scanned + "</b> " + esc(sc.title.toLowerCase()) +
+      " episodes in this scan, the sequencer is ahead on net value in <b>" + br.sequencer_ahead +
+      "</b>, level in <b>" + br.tied + "</b>, and behind in <b>" + br.legacy_ahead +
+      "</b>. The episode above is the <b>median</b> of the " + br.qualified +
+      " that match this scenario — not the best one.";
+
+    function li(k, v, hidden, flag) {
+      var d = el("li", flag && !hidden ? "flag" : null);
+      d.appendChild(el("span", null, esc(k)));
+      d.appendChild(el("b", null, hidden ? "—" : esc(String(v))));
+      return d;
+    }
+  }
+
+  function fmtMetric(v, unit) {
+    if (unit === "rupees") return rupees(v);
+    if (unit === "days") return v + "d";
+    return String(v);
+  }
+
+  /* ---- transport ------------------------------------------------------- */
+  function select(i) {
+    stop();
+    state.scenario = i;
+    state.step = 0;
+    renderTabs(); renderContext(); renderFrame(); renderCompare();
+  }
+  function step(n) {
+    var max = frames().length - 1;
+    state.step = Math.min(max, Math.max(0, state.step + n));
+    renderFrame(); renderCompare();
+    if (state.playing && atEnd()) stop();
+  }
+  function stop() {
+    state.playing = false;
+    if (timer) { clearInterval(timer); timer = null; }
+    var b = document.getElementById("play");
+    if (b) b.textContent = "Play";
+  }
+  function play() {
+    if (state.playing) { stop(); return; }
+    if (atEnd()) state.step = 0;
+    state.playing = true;
+    document.getElementById("play").textContent = "Pause";
+    renderFrame();
+    timer = setInterval(function () { step(1); }, 2200);
+  }
+
+  document.getElementById("next").addEventListener("click", function () { stop(); step(1); });
+  document.getElementById("back").addEventListener("click", function () { stop(); step(-1); });
+  document.getElementById("play").addEventListener("click", play);
+  document.getElementById("reset").addEventListener("click", function () { stop(); state.step = 0; renderFrame(); renderCompare(); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowRight") { stop(); step(1); }
+    else if (e.key === "ArrowLeft") { stop(); step(-1); }
+    else if (e.key === " ") { e.preventDefault(); play(); }
+  });
+
+  /* ---- provenance ------------------------------------------------------ */
+  function renderProv() {
+    var h = DATA.headline;
+    document.getElementById("prov").innerHTML =
+      "<div><b>Where these numbers come from.</b> The header strip is read from <code>.verify_cache/headline.json</code>" +
+      " (<code>" + esc(h.source_script) + "</code>, fingerprint <code>" + esc(h.fingerprint) + "</code>). " +
+      "Every episode below it is a real run of the simulator — the decision logs are reproduced exactly as the " +
+      "policies recorded them at decision time, not recomputed for display.</div>" +
+      "<div><b>Regenerate:</b> <code>" + esc(DATA.command) + "</code></div>" +
+      "<div><b>Verify any single episode:</b><span class=\"cmds\">" +
+      DATA.scenarios.map(function (s) { return "<code>" + esc(s.verify_command) + "</code>"; }).join("") +
+      "</span></div>" +
+      "<div>" + esc(DATA.cost_note) + " Customers, balances and failures are synthetic, from this repo's generator." +
+      (DATA.git_commit ? " Built at commit <code>" + esc(DATA.git_commit) + "</code>." : "") + "</div>";
+  }
+
+  /* Deep link: #s=2&t=3 opens a given scenario on a given frame, so a single
+     beat can be linked to, or re-recorded, without clicking back to it. */
+  function readHash() {
+    var m = /s=(\d+)/.exec(location.hash), t = /t=(\d+)/.exec(location.hash);
+    if (m) state.scenario = Math.min(DATA.scenarios.length - 1, Math.max(0, +m[1]));
+    if (t) state.step = Math.min(frames().length - 1, Math.max(0, +t[1]));
+  }
+
+  readHash();
+  renderScale(); renderTabs(); renderContext(); renderFrame(); renderCompare(); renderProv();
+})();
+</script>
+</body>
+</html>

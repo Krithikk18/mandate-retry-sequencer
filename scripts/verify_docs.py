@@ -368,7 +368,7 @@ def C(*args, **kwargs) -> Claim:  # noqa: N802 - a table this long needs a short
     return Claim(*args, **kwargs)
 
 
-R = "README.md"
+R = "docs/DETAILS.md"
 X = "CONTEXT.md"
 
 CLAIMS: list[Claim] = [
